@@ -1,2 +1,2 @@
-# if_iwa
+# iwm
 OpenBSD port of if_iwm to FreeBSD.
