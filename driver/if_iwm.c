@@ -102,8 +102,8 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-#include "bpfilter.h"
+#include <sys/cdefs.h>
+__FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
 #include <sys/conf.h>
@@ -116,18 +116,14 @@
 #include <sys/sockio.h>
 #include <sys/systm.h>
 
-#include <sys/task.h>
 #include <machine/bus.h>
 #include <machine/endian.h>
-#include <machine/intr.h>
 
 #include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
-#include <dev/pci/pcidevs.h>
 
-#if NBPFILTER > 0
 #include <net/bpf.h>
-#endif
+
 #include <net/if.h>
 #include <net/if_arp.h>
 #include <net/if_dl.h>
@@ -159,8 +155,8 @@ int iwm_debug = 1;
 #define DPRINTFN(n, x)	do { ; } while (0)
 #endif
 
-#include <dev/pci/if_iwmreg.h>
-#include <dev/pci/if_iwmvar.h>
+#include <if_iwmreg.h>
+#include <if_iwmvar.h>
 
 const uint8_t iwm_nvm_channels[] = {
 	/* 2.4 GHz */
@@ -756,7 +752,7 @@ iwm_read_mem(struct iwm_softc *sc, uint32_t addr, void *buf, int dwords)
 int
 iwm_write_mem(struct iwm_softc *sc, uint32_t addr, const void *buf, int dwords)
 {
-	int offs;	
+	int offs;
 	const uint32_t *vals = buf;
 
 	if (iwm_nic_lock(sc)) {
