@@ -106,6 +106,7 @@
 __FBSDID("$FreeBSD$");
 
 #include <sys/param.h>
+#include <sys/bus.h>
 #include <sys/conf.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
@@ -139,7 +140,7 @@ __FBSDID("$FreeBSD$");
 #include <net80211/ieee80211_amrr.h>
 #include <net80211/ieee80211_radiotap.h>
 
-#define DEVNAME(_s)	((_s)->sc_dev.dv_xname)
+#define DEVNAME(_s)	(device_get_nameunit((_s)->sc_dev))
 
 #define IC2IFP(_ic_) (&(_ic_)->ic_if)
 
@@ -419,9 +420,7 @@ void	iwm_init_task(void *);
 int	iwm_activate(struct device *, int);
 void	iwm_wakeup(struct iwm_softc *);
 
-#if NBPFILTER > 0
 void	iwm_radiotap_attach(struct iwm_softc *);
-#endif
 
 /*
  * Firmware parser.
@@ -3080,7 +3079,6 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	if (c)
 		ni->ni_chan = c;
 
-#if NBPFILTER > 0
 	if (sc->sc_drvbpf != NULL) {
 		struct mbuf mb;
 		struct iwm_rx_radiotap_header *tap = &sc->sc_rxtap;
@@ -3122,7 +3120,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		mb.m_flags = 0;
 		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_IN);
 	}
-#endif
+
 	ieee80211_input(IC2IFP(ic), m, ni, &rxi);
 	ieee80211_release_node(ic, ni);
 }
@@ -3781,7 +3779,6 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 
 	rinfo = iwm_tx_fill_cmd(sc, in, wh, tx);
 
-#if NBPFILTER > 0
 	if (sc->sc_drvbpf != NULL) {
 		struct mbuf mb;
 		struct iwm_tx_radiotap_header *tap = &sc->sc_txtap;
@@ -3803,7 +3800,6 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		mb.m_flags = 0;
 		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_OUT);
 	}
-#endif
 
 	/* Encrypt the frame if need be. */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
@@ -5668,20 +5664,16 @@ iwm_start(struct ifnet *ifp)
 			ifp->if_oerrors++;
 			continue;
 		}
-#if NBPFILTER > 0
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
-#endif
 		if ((m = ieee80211_encap(ifp, m, &ni)) == NULL) {
 			ifp->if_oerrors++;
 			continue;
 		}
 
  sendit:
-#if NBPFILTER > 0
 		if (ic->ic_rawbpf != NULL)
 			bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_OUT);
-#endif
 		if (iwm_tx(sc, m, ni, ac) != 0) {
 			ieee80211_release_node(ic, ni);
 			ifp->if_oerrors++;
@@ -6635,9 +6627,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	ieee80211_ifattach(ifp);
 	ieee80211_media_init(ifp, iwm_media_change, ieee80211_media_status);
 
-#if NBPFILTER > 0
 	iwm_radiotap_attach(sc);
-#endif
 	timeout_set(&sc->sc_calib_to, iwm_calib_timeout, sc);
 	task_set(&sc->init_task, iwm_init_task, sc);
 
@@ -6663,7 +6653,6 @@ fail1:	iwm_free_fwmem(sc);
 	return;
 }
 
-#if NBPFILTER > 0
 /*
  * Attach the interface to 802.11 radiotap.
  */
@@ -6681,7 +6670,6 @@ iwm_radiotap_attach(struct iwm_softc *sc)
 	sc->sc_txtap.wt_ihdr.it_len = htole16(sc->sc_txtap_len);
 	sc->sc_txtap.wt_ihdr.it_present = htole32(IWM_TX_RADIOTAP_PRESENT);
 }
-#endif
 
 void
 iwm_init_task(void *arg1)

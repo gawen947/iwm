@@ -363,7 +363,7 @@ struct iwm_bf_data {
 };
 
 struct iwm_softc {
-	struct device sc_dev;
+	device_t sc_dev;
 	struct ieee80211com sc_ic;
 	int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
 	int sc_newstate_pending;
@@ -472,7 +472,6 @@ struct iwm_softc {
 
 	int host_interrupt_operation_mode;
 
-#if NBPFILTER > 0
 	caddr_t			sc_drvbpf;
 
 	union {
@@ -488,7 +487,6 @@ struct iwm_softc {
 	} sc_txtapu;
 #define sc_txtap	sc_txtapu.th
 	int			sc_txtap_len;
-#endif
 };
 
 struct iwm_node {
