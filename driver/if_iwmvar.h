@@ -362,14 +362,23 @@ struct iwm_bf_data {
 	int last_cqm_event;
 };
 
+struct iwm_vap {
+	struct ieee80211vap iwm_vap;
+
+	int (*iwm_newstate)(struct ieee80211vap *, enum ieee80211_state, int);
+};
+
 struct iwm_softc {
+	struct ifnet *sc_ifp;
 	device_t sc_dev;
 	struct ieee80211com sc_ic;
-	int (*sc_newstate)(struct ieee80211com *, enum ieee80211_state, int);
+
 	int sc_newstate_pending;
 
 	struct ieee80211_amrr sc_amrr;
+#ifdef notyet
 	struct timeout sc_calib_to;
+#endif
 
 	struct task		init_task;
 
@@ -377,8 +386,10 @@ struct iwm_softc {
 	bus_space_handle_t sc_sh;
 	bus_size_t sc_sz;
 	bus_dma_tag_t sc_dmat;
+#ifdef notyet
 	pci_chipset_tag_t sc_pct;
 	pcitag_t sc_pcitag;
+#endif
 	const void *sc_ih;
 
 	/* TX scheduler rings. */

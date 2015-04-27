@@ -108,6 +108,8 @@ __FBSDID("$FreeBSD$");
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/conf.h>
+#include <sys/endian.h>
+#include <sys/firmware.h>
 #include <sys/kernel.h>
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
@@ -116,6 +118,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/systm.h>
+#include <sys/linker.h>
 
 #include <machine/bus.h>
 #include <machine/endian.h>
@@ -158,6 +161,10 @@ int iwm_debug = 1;
 
 #include <if_iwmreg.h>
 #include <if_iwmvar.h>
+
+/* XXX */
+#undef KASSERT
+#define KASSERT(exp)	if (!exp) panic("kassert %s:%d\n", __func__, __LINE__);
 
 const uint8_t iwm_nvm_channels[] = {
 	/* 2.4 GHz */
@@ -500,7 +507,7 @@ iwm_set_default_calib(struct iwm_softc *sc, const void *data)
 void
 iwm_fw_info_free(struct iwm_fw_info *fw)
 {
-	free(fw->fw_rawdata, M_DEVBUF, fw->fw_rawsize);
+	firmware_put(fw->fw_rawdata, FIRMWARE_UNLOAD);
 	fw->fw_rawdata = NULL;
 	fw->fw_rawsize = 0;
 	/* don't touch fw->fw_status */
@@ -514,6 +521,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	struct iwm_tlv_ucode_header *uhdr;
 	struct iwm_ucode_tlv tlv;
 	enum iwm_ucode_tlv_type tlv_type;
+	const struct firmware *fwp;
 	uint8_t *data;
 	int error;
 	size_t len;
@@ -533,20 +541,22 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	 * Load firmware into driver memory.
 	 * fw_rawdata and fw_rawsize will be set.
 	 */
-	error = loadfirmware(sc->sc_fwname,
-	    (u_char **)&fw->fw_rawdata, &fw->fw_rawsize);
-	if (error != 0) {
+	fwp = firmware_get(sc->sc_fwname);
+
+	if (fwp == NULL) {
 		printf("%s: could not read firmware %s (error %d)\n",
 		    DEVNAME(sc), sc->sc_fwname, error);
 		goto out;
 	}
+	fw->fw_rawdata = __DECONST(void *, fwp->data);
+	fw->fw_rawsize = fwp->datasize;
 
 	/*
 	 * Parse firmware contents
 	 */
 
 	uhdr = (void *)fw->fw_rawdata;
-	if (*(uint32_t *)fw->fw_rawdata != 0
+	if (*(const uint32_t *)fw->fw_rawdata != 0
 	    || le32toh(uhdr->magic) != IWM_TLV_UCODE_MAGIC) {
 		printf("%s: invalid firmware %s\n",
 		    DEVNAME(sc), sc->sc_fwname);
