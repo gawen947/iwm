@@ -371,7 +371,7 @@ struct iwm_vap {
 struct iwm_softc {
 	struct ifnet *sc_ifp;
 	device_t sc_dev;
-	struct ieee80211com sc_ic;
+	struct ieee80211com *sc_ic;
 
 	int sc_newstate_pending;
 
@@ -382,15 +382,13 @@ struct iwm_softc {
 
 	struct task		init_task;
 
+	struct resource *sc_irq;
+	struct resource *sc_mem;
 	bus_space_tag_t sc_st;
 	bus_space_handle_t sc_sh;
 	bus_size_t sc_sz;
 	bus_dma_tag_t sc_dmat;
-#ifdef notyet
-	pci_chipset_tag_t sc_pct;
-	pcitag_t sc_pcitag;
-#endif
-	const void *sc_ih;
+	void *sc_ih;
 
 	/* TX scheduler rings. */
 	struct iwm_dma_info		sched_dma;
