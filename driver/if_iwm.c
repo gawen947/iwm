@@ -114,21 +114,22 @@ __FBSDID("$FreeBSD$");
 #include <sys/malloc.h>
 #include <sys/mbuf.h>
 #include <sys/mutex.h>
+#include <sys/module.h>
 #include <sys/proc.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
-#include <sys/systm.h>
 #include <sys/linker.h>
 
 #include <machine/bus.h>
 #include <machine/endian.h>
 
-#include <dev/pci/pcireg.h>
 #include <dev/pci/pcivar.h>
+#include <dev/pci/pcireg.h>
 
 #include <net/bpf.h>
 
 #include <net/if.h>
+#include <net/if_var.h>
 #include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
@@ -164,7 +165,7 @@ int iwm_debug = 1;
 
 /* XXX */
 #undef KASSERT
-#define KASSERT(exp)	if (!exp) panic("kassert %s:%d\n", __func__, __LINE__);
+#define KASSERT(exp)	if (!(exp)) panic("kassert %s:%d\n", __func__, __LINE__);
 
 const uint8_t iwm_nvm_channels[] = {
 	/* 2.4 GHz */
@@ -419,10 +420,10 @@ void	iwm_nic_error(struct iwm_softc *);
 #endif
 void	iwm_notif_intr(struct iwm_softc *);
 int	iwm_intr(void *);
-int	iwm_match(struct device *, void *, void *);
+int	iwm_match(device_t, void *, void *);
 int	iwm_preinit(struct iwm_softc *);
 void	iwm_attach_hook(iwm_hookarg_t);
-void	iwm_attach(struct device *, struct device *, void *);
+int	iwm_attach(device_t);
 void	iwm_init_task(void *);
 int	iwm_activate(struct device *, int);
 void	iwm_wakeup(struct iwm_softc *);
@@ -523,7 +524,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	enum iwm_ucode_tlv_type tlv_type;
 	const struct firmware *fwp;
 	uint8_t *data;
-	int error;
+	int error = 0;
 	size_t len;
 
 	if (fw->fw_status == IWM_FW_STATUS_DONE &&
@@ -864,6 +865,7 @@ int
 iwm_dma_contig_alloc(bus_dma_tag_t tag, struct iwm_dma_info *dma,
     bus_size_t size, bus_size_t alignment)
 {
+#ifdef notyet
 	int nsegs, error;
 	caddr_t va;
 
@@ -899,11 +901,14 @@ iwm_dma_contig_alloc(bus_dma_tag_t tag, struct iwm_dma_info *dma,
 
 fail:	iwm_dma_contig_free(dma);
 	return error;
+#endif
+	return 0;
 }
 
 void
 iwm_dma_contig_free(struct iwm_dma_info *dma)
 {
+#ifdef notyet
 	if (dma->map != NULL) {
 		if (dma->vaddr != NULL) {
 			bus_dmamap_sync(dma->tag, dma->map, 0, dma->size,
@@ -916,6 +921,7 @@ iwm_dma_contig_free(struct iwm_dma_info *dma)
 		bus_dmamap_destroy(dma->tag, dma->map);
 		dma->map = NULL;
 	}
+#endif
 }
 
 /* fwmem is used to load firmware onto the card */
@@ -1013,9 +1019,11 @@ iwm_alloc_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 		struct iwm_rx_data *data = &ring->data[i];
 
 		memset(data, 0, sizeof(*data));
+#ifdef notyet
 		error = bus_dmamap_create(sc->sc_dmat, IWM_RBUF_SIZE, 1,
 		    IWM_RBUF_SIZE, 0, BUS_DMA_NOWAIT | BUS_DMA_ALLOCNOW,
 		    &data->map);
+#endif
 		if (error != 0) {
 			printf("%s: could not create RX buf DMA map\n",
 			    DEVNAME(sc));
@@ -1053,6 +1061,7 @@ iwm_reset_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 void
 iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 {
+#ifdef notyet
 	int i;
 
 	iwm_dma_contig_free(&ring->desc_dma);
@@ -1070,11 +1079,13 @@ iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
 	}
+#endif
 }
 
 int
 iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 {
+#ifdef notyet
 	bus_addr_t paddr;
 	bus_size_t size;
 	int i, error;
@@ -1129,11 +1140,14 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 
 fail:	iwm_free_tx_ring(sc, ring);
 	return error;
+#endif
+	return 0;
 }
 
 void
 iwm_reset_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 {
+#ifdef notyet
 	int i;
 
 	for (i = 0; i < IWM_TX_RING_COUNT; i++) {
@@ -1154,11 +1168,13 @@ iwm_reset_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 	sc->qfullmsk &= ~(1 << ring->qid);
 	ring->queued = 0;
 	ring->cur = 0;
+#endif
 }
 
 void
 iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 {
+#ifdef notyet
 	int i;
 
 	iwm_dma_contig_free(&ring->desc_dma);
@@ -1176,6 +1192,7 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
 	}
+#endif
 }
 
 /*
@@ -1311,11 +1328,10 @@ iwm_prepare_card_hw(struct iwm_softc *sc)
 void
 iwm_apm_config(struct iwm_softc *sc)
 {
-	pcireg_t reg;
+	uint16_t reg;
 
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag,
-	    sc->sc_cap_off + PCI_PCIE_LCSR);
-	if (reg & PCI_PCIE_LCSR_ASPM_L1) {
+	reg = pci_read_config(sc->sc_dev, PCIER_LINK_CTL, sizeof(reg));
+	if (reg & PCIEM_LINK_CTL_ASPMC_L1)  {
 		/* Um the Linux driver prints "Disabling L0S for this one ... */
 		IWM_SETBITS(sc, IWM_CSR_GIO_REG,
 		    IWM_CSR_GIO_REG_VAL_L0S_ENABLED);
@@ -1866,7 +1882,7 @@ struct iwm_calib_res_notif_phy_db {
  * get phy db section: returns a pointer to a phy db section specified by
  * type and channel group id.
  */
-struct iwm_phy_db_entry *
+static struct iwm_phy_db_entry *
 iwm_phy_db_get_section(struct iwm_softc *sc,
 	enum iwm_phy_db_section_type type, uint16_t chg_id)
 {
@@ -1894,7 +1910,7 @@ iwm_phy_db_get_section(struct iwm_softc *sc,
 	return NULL;
 }
 
-int
+static int
 iwm_phy_db_set_section(struct iwm_softc *sc,
 	struct iwm_calib_res_notif_phy_db *phy_db_notif)
 {
@@ -1912,7 +1928,7 @@ iwm_phy_db_set_section(struct iwm_softc *sc,
 		return EINVAL;
 
 	if (entry->data)
-		free(entry->data, M_DEVBUF, entry->size);
+		free(entry->data, M_DEVBUF);
 	entry->data = malloc(size, M_DEVBUF, M_NOWAIT);
 	if (!entry->data) {
 		entry->size = 0;
@@ -2046,7 +2062,7 @@ iwm_send_phy_db_cmd(struct iwm_softc *sc, uint16_t type,
 	return iwm_send_cmd(sc, &cmd);
 }
 
-int
+static int
 iwm_phy_db_send_all_channel_groups(struct iwm_softc *sc,
 	enum iwm_phy_db_section_type type, uint8_t max_ch_groups)
 {
@@ -2575,7 +2591,7 @@ struct iwm_nvm_section {
     ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_RX_CHAIN) \
     >> IWM_FW_PHY_CFG_RX_CHAIN_POS)
 
-int
+static int
 iwm_parse_nvm_sections(struct iwm_softc *sc, struct iwm_nvm_section *sections)
 {
 	const uint16_t *hw, *sw, *calib;
@@ -2606,7 +2622,7 @@ iwm_nvm_init(struct iwm_softc *sc)
 	DPRINTF(("Read NVM\n"));
 
 	/* TODO: find correct NVM max size for a section */
-	nvm_buffer = malloc(IWM_OTP_LOW_IMAGE_SIZE, M_DEVBUF, M_WAIT);
+	nvm_buffer = malloc(IWM_OTP_LOW_IMAGE_SIZE, M_DEVBUF, M_WAITOK);
 	for (i = 0; i < nitems(nvm_to_read); i++) {
 		section = nvm_to_read[i];
 		KASSERT(section <= nitems(nvm_sections));
@@ -2615,12 +2631,12 @@ iwm_nvm_init(struct iwm_softc *sc)
 		if (error)
 			break;
 
-		temp = malloc(len, M_DEVBUF, M_WAIT);
+		temp = malloc(len, M_DEVBUF, M_WAITOK);
 		memcpy(temp, nvm_buffer, len);
 		nvm_sections[section].data = temp;
 		nvm_sections[section].length = len;
 	}
-	free(nvm_buffer, M_DEVBUF, IWM_OTP_LOW_IMAGE_SIZE);
+	free(nvm_buffer, M_DEVBUF);
 	if (error)
 		return error;
 
@@ -2641,9 +2657,10 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 
 	/* Copy firmware section into pre-allocated DMA-safe memory. */
 	memcpy(dma->vaddr, section, byte_cnt);
+#ifdef notyet
 	bus_dmamap_sync(sc->sc_dmat,
 	    dma->map, 0, byte_cnt, BUS_DMASYNC_PREWRITE);
-
+#endif
 	if (!iwm_nic_lock(sc))
 		return EBUSY;
 
@@ -2835,7 +2852,8 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 		    + sc->sc_capa_max_probe_len
 		    + IWM_MAX_NUM_SCAN_CHANNELS
 		    * sizeof(struct iwm_scan_channel);
-		sc->sc_scan_cmd = malloc(sc->sc_scan_cmd_len, M_DEVBUF, M_WAIT);
+		sc->sc_scan_cmd = malloc(sc->sc_scan_cmd_len, M_DEVBUF,
+		    M_WAITOK);
 
 		return 0;
 	}
@@ -2880,14 +2898,14 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	int error;
 	int fatal = 0;
 
-	m = m_gethdr(M_DONTWAIT, MT_DATA);
+	m = m_gethdr(M_NOWAIT, MT_DATA);
 	if (m == NULL)
 		return ENOBUFS;
 
 	if (size <= MCLBYTES) {
-		MCLGET(m, M_DONTWAIT);
+		MCLGET(m, M_NOWAIT);
 	} else {
-		MCLGETI(m, M_DONTWAIT, NULL, IWM_RBUF_SIZE);
+		MCLGETI(m, M_NOWAIT, NULL, IWM_RBUF_SIZE);
 	}
 	if ((m->m_flags & M_EXT) == 0) {
 		m_freem(m);
@@ -3444,12 +3462,12 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 			error = EINVAL;
 			goto out;
 		}
-		m = m_gethdr(M_DONTWAIT, MT_DATA);
+		m = m_gethdr(M_NOWAIT, MT_DATA);
 		if (m == NULL) {
 			error = ENOMEM;
 			goto out;
 		}
-		MCLGETI(m, M_DONTWAIT, NULL, IWM_RBUF_SIZE);
+		MCLGETI(m, M_NOWAIT, NULL, IWM_RBUF_SIZE);
 		if (!(m->m_flags & M_EXT)) {
 			m_freem(m);
 			error = ENOMEM;
@@ -3890,13 +3908,13 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 			return error;
 		}
 		/* Too many DMA segments, linearize mbuf. */
-		MGETHDR(m1, M_DONTWAIT, MT_DATA);
+		MGETHDR(m1, M_NOWAIT, MT_DATA);
 		if (m1 == NULL) {
 			m_freem(m);
 			return ENOBUFS;
 		}
 		if (m->m_pkthdr.len > MHLEN) {
-			MCLGET(m1, M_DONTWAIT);
+			MCLGET(m1, M_NOWAIT);
 			if (!(m1->m_flags & M_EXT)) {
 				m_freem(m);
 				m_freem(m1);
@@ -5310,8 +5328,8 @@ iwm_media_change(struct ifnet *ifp)
 		sc->sc_fixed_ridx = ridx;
 	}
 
-	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) ==
-	    (IFF_UP | IFF_RUNNING)) {
+	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) ==
+	    (IFF_UP | IFF_DRV_RUNNING)) {
 		iwm_stop(ifp, 0);
 		error = iwm_init(ifp);
 	}
@@ -5331,7 +5349,7 @@ iwm_newstate_cb(void *wk)
 	struct iwm_softc *sc = ifp->if_softc;
 	int error;
 
-	free(iwmns, M_DEVBUF, sizeof(*iwmns));
+	free(iwmns, M_DEVBUF);
 
 	DPRINTF(("Prepare to switch state %d->%d\n", ic->ic_state, nstate));
 	if (sc->sc_generation != generation) {
@@ -5593,7 +5611,7 @@ iwm_allow_mcast(struct iwm_softc *sc)
 
 	error = iwm_mvm_send_cmd_pdu(sc, IWM_MCAST_FILTER_CMD,
 	    IWM_CMD_SYNC, size, cmd);
-	free(cmd, M_DEVBUF, size);
+	free(cmd, M_DEVBUF);
 	return error;
 }
 
@@ -5623,7 +5641,7 @@ iwm_init(struct ifnet *ifp)
 	 */
 
 	ifp->if_flags &= ~IFF_OACTIVE;
-	ifp->if_flags |= IFF_RUNNING;
+	ifp->if_flags |= IFF_DRV_RUNNING;
 
 	ieee80211_begin_scan(ifp);
 	sc->sc_flags |= IWM_FLAG_HW_INITED;
@@ -5645,7 +5663,7 @@ iwm_start(struct ifnet *ifp)
 	struct mbuf *m;
 	int ac;
 
-	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
+	if ((ifp->if_flags & (IFF_DRV_RUNNING | IFF_OACTIVE)) != IFF_DRV_RUNNING)
 		return;
 
 	for (;;) {
@@ -5711,7 +5729,7 @@ iwm_stop(struct ifnet *ifp, int disable)
 	sc->sc_scanband = 0;
 	sc->sc_auth_prot = 0;
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~(IFF_DRV_RUNNING | IFF_OACTIVE);
 
 	if (ic->ic_state != IEEE80211_S_INIT)
 		ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
@@ -5776,12 +5794,12 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 		/* FALLTHROUGH */
 	case SIOCSIFFLAGS:
 		if (ifp->if_flags & IFF_UP) {
-			if (!(ifp->if_flags & IFF_RUNNING)) {
+			if (!(ifp->if_flags & IFF_DRV_RUNNING)) {
 				if ((error = iwm_init(ifp)) != 0)
 					ifp->if_flags &= ~IFF_UP;
 			}
 		} else {
-			if (ifp->if_flags & IFF_RUNNING)
+			if (ifp->if_flags & IFF_DRV_RUNNING)
 				iwm_stop(ifp, 1);
 		}
 		break;
@@ -5802,8 +5820,8 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 
 	if (error == ENETRESET) {
 		error = 0;
-		if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) ==
-		    (IFF_UP | IFF_RUNNING)) {
+		if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) ==
+		    (IFF_UP | IFF_DRV_RUNNING)) {
 			iwm_stop(ifp, 0);
 			error = iwm_init(ifp);
 		}
@@ -6355,23 +6373,39 @@ iwm_intr(void *arg)
 /*
  * Autoconf glue-sniffing
  */
+#define	PCI_VENDOR_INTEL		0x8086
+#define	PCI_PRODUCT_INTEL_WL_3160_1	0x08b3
+#define	PCI_PRODUCT_INTEL_WL_3160_2	0x08b4
+#define	PCI_PRODUCT_INTEL_WL_7260_1	0x08b1
+#define	PCI_PRODUCT_INTEL_WL_7260_2	0x08b2
+#define	PCI_PRODUCT_INTEL_WL_7265_1	0x095a
+#define	PCI_PRODUCT_INTEL_WL_7265_2	0x095b
 
-typedef void *iwm_match_t;
-
-static const struct pci_matchid iwm_devices[] = {
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_3160_1 },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_3160_2 },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7260_1 },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7260_2 },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7265_1 },
-	{ PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_WL_7265_2 },
+static const struct iwm_devices {
+	uint16_t	device;
+	const char	*name;
+} iwm_devices[] = {
+	{ PCI_PRODUCT_INTEL_WL_3160_1, "Intel Dual Band Wireless AC 3160" },
+	{ PCI_PRODUCT_INTEL_WL_3160_2, "Intel Dual Band Wireless AC 3160" },
+	{ PCI_PRODUCT_INTEL_WL_7260_1, "Intel Dual Band Wireless AC 7260" },
+	{ PCI_PRODUCT_INTEL_WL_7260_2, "Intel Dual Band Wireless AC 7260" },
+	{ PCI_PRODUCT_INTEL_WL_7265_1, "Intel Dual Band Wireless AC 7265" },
+	{ PCI_PRODUCT_INTEL_WL_7265_2, "Intel Dual Band Wireless AC 7265" },
 };
 
-int
-iwm_match(struct device *parent, iwm_match_t match __unused, void *aux)
+static int
+iwm_probe(device_t dev)
 {
-	return pci_matchbyid((struct pci_attach_args *)aux, iwm_devices,
-	    nitems(iwm_devices));
+	int i;
+
+	for (i = 0; i < nitems(iwm_devices); i++)
+		if (pci_get_vendor(dev) == PCI_VENDOR_INTEL &&
+		    pci_get_device(dev) == iwm_devices[i].device) {
+			device_set_desc(iwm_devices[i].name);
+			return (BUS_PROBE_DEFAULT);
+		}
+
+	return (ENXIO);
 }
 
 int
@@ -6438,19 +6472,18 @@ iwm_attach_hook(iwm_hookarg_t arg)
 	iwm_preinit(sc);
 }
 
-void
-iwm_attach(struct device *parent, struct device *self, void *aux)
+int
+iwm_attach(device_t dev)
 {
-	struct iwm_softc *sc = (void *)self;
-	struct pci_attach_args *pa = aux;
-	pci_intr_handle_t ih;
-	pcireg_t reg, memtype;
+	struct iwm_softc *sc;
 	struct ieee80211com *ic = &sc->sc_ic;
 	struct ifnet *ifp = &ic->ic_if;
 	const char *intrstr;
 	int error;
 	int txq_i, i;
+	uint16_t reg;
 
+	sc = device_get_softc(dev);
 	sc->sc_pct = pa->pa_pc;
 	sc->sc_pcitag = pa->pa_tag;
 	sc->sc_dmat = pa->pa_dmat;
@@ -6466,53 +6499,47 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	if (error == 0) {
 		printf("%s: PCIe capability structure not found!\n",
 		    DEVNAME(sc));
-		return;
+		return ENXIO;
 	}
 
 	/* Clear device-specific "PCI retry timeout" register (41h). */
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
-	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
+	reg = pci_read_config(dev, 0x40, sizeof(reg));
+	pci_write_config(dev, 0x40, reg & ~0xff00);
 
 	/* Enable bus-mastering and hardware bug workaround. */
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, PCI_COMMAND_STATUS_REG);
-	reg |= PCI_COMMAND_MASTER_ENABLE;
+	pci_enable_bus_master(dev);
+	reg = pci_read_config(dev, PCIR_STATUS);
 	/* if !MSI */
-	if (reg & PCI_COMMAND_INTERRUPT_DISABLE) {
-		reg &= ~PCI_COMMAND_INTERRUPT_DISABLE;
+	if (reg & PCIM_STATUS_INTxSTATE) {
+		reg &= ~PCIM_STATUS_INTxSTATE;
 	}
-	pci_conf_write(sc->sc_pct, sc->sc_pcitag, PCI_COMMAND_STATUS_REG, reg);
+	pci_write_config(dev, PCIR_STATUS, reg);
 
 	memtype = pci_mapreg_type(pa->pa_pc, pa->pa_tag, PCI_MAPREG_START);
 	error = pci_mapreg_map(pa, PCI_MAPREG_START, memtype, 0,
 	    &sc->sc_st, &sc->sc_sh, NULL, &sc->sc_sz, 0);
 	if (error != 0) {
 		printf("%s: can't map mem space\n", DEVNAME(sc));
-		return;
+		return ENXIO;
 	}
 
 	/* Install interrupt handler. */
 	if (pci_intr_map_msi(pa, &ih) && pci_intr_map(pa, &ih)) {
 		printf("%s: can't map interrupt\n", DEVNAME(sc));
-		return;
+		return ENXIO;
 	}
 
-	intrstr = pci_intr_string(sc->sc_pct, ih);
 	sc->sc_ih = pci_intr_establish(sc->sc_pct, ih, IPL_NET, iwm_intr, sc,
 	    DEVNAME(sc));
 
 	if (sc->sc_ih == NULL) {
-		printf("\n");
 		printf("%s: can't establish interrupt", DEVNAME(sc));
-		if (intrstr != NULL)
-			printf(" at %s", intrstr);
-		printf("\n");
-		return;
+		return ENXIO;
 	}
-	printf(", %s\n", intrstr);
 
 	sc->sc_wantresp = -1;
 
-	switch (PCI_PRODUCT(pa->pa_id)) {
+	switch (pci_get_device(dev)) {
 	case PCI_PRODUCT_INTEL_WL_3160_1:
 	case PCI_PRODUCT_INTEL_WL_3160_2:
 		sc->sc_fwname = "iwm-3160-9";
@@ -6530,7 +6557,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 		break;
 	default:
 		printf("%s: unknown adapter type\n", DEVNAME(sc));
-		return;
+		return ENXIO;
 	}
 	sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
 
@@ -6541,14 +6568,14 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	sc->sc_hw_rev = IWM_READ(sc, IWM_CSR_HW_REV);
 	if (iwm_prepare_card_hw(sc) != 0) {
 		printf("%s: could not initialize hardware\n", DEVNAME(sc));
-		return;
+		return ENXIO;
 	}
 
 	/* Allocate DMA memory for firmware transfers. */
 	if ((error = iwm_alloc_fwmem(sc)) != 0) {
 		printf("%s: could not allocate memory for firmware\n",
 		    DEVNAME(sc));
-		return;
+		return ENXIO;
 	}
 
 	/* Allocate "Keep Warm" page. */
@@ -6650,7 +6677,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	else
 		iwm_attach_hook(sc);
 
-	return;
+	return 0;
 
 	/* Free allocated memory if something failed during attachment. */
 fail4:	while (--txq_i >= 0)
@@ -6660,7 +6687,7 @@ fail3:	if (sc->ict_dma.vaddr != NULL)
 		iwm_free_ict(sc);
 fail2:	iwm_free_kw(sc);
 fail1:	iwm_free_fwmem(sc);
-	return;
+	return ENXIO;
 }
 
 /*
@@ -6694,7 +6721,7 @@ iwm_init_task(void *arg1)
 	sc->sc_flags |= IWM_FLAG_BUSY;
 
 	iwm_stop(ifp, 0);
-	if ((ifp->if_flags & (IFF_UP | IFF_RUNNING)) == IFF_UP)
+	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) == IFF_UP)
 		iwm_init(ifp);
 
 	sc->sc_flags &= ~IWM_FLAG_BUSY;
@@ -6702,9 +6729,10 @@ iwm_init_task(void *arg1)
 	splx(s);
 }
 
-void
-iwm_wakeup(struct iwm_softc *sc)
+static int
+iwm_resume(device_t dev)
 {
+#ifdef notyet
 	pcireg_t reg;
 
 	/* Clear device-specific "PCI retry timeout" register (41h). */
@@ -6712,33 +6740,37 @@ iwm_wakeup(struct iwm_softc *sc)
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
 	iwm_init_task(sc);
-
+#endif
 }
 
-int
-iwm_activate(struct device *self, int act)
+static int
+iwm_suspend(device_t dev)
 {
-	struct iwm_softc *sc = (struct iwm_softc *)self;
-	struct ifnet *ifp = &sc->sc_ic.ic_if;
-
-	switch (act) {
-	case DVACT_SUSPEND:
-		if (ifp->if_flags & IFF_RUNNING)
-			iwm_stop(ifp, 0);
-		break;
-	case DVACT_WAKEUP:
-		iwm_wakeup(sc);
-		break;
-	}
-
-	return 0;
+#ifdef notyet
+	if (ifp->if_flags & IFF_DRV_RUNNING)
+		iwm_stop(ifp, 0);
+#endif
+	return (0);
 }
 
-struct cfdriver iwm_cd = {
-	NULL, "iwm", DV_IFNET
+static device_method_t iwm_pci_methods[] = {
+        /* Device interface */
+        DEVMETHOD(device_probe,         iwm_probe),
+        DEVMETHOD(device_attach,        iwm_attach),
+//        DEVMETHOD(device_detach,        iwm_detach),
+//        DEVMETHOD(device_shutdown,      iwm_shutdown),
+        DEVMETHOD(device_suspend,       iwm_suspend),
+        DEVMETHOD(device_resume,        iwm_resume),
+
+        DEVMETHOD_END
 };
 
-struct cfattach iwm_ca = {
-	sizeof(struct iwm_softc), iwm_match, iwm_attach,
-	NULL, iwm_activate
+static driver_t iwm_pci_driver = {
+        "iwm",
+        iwm_pci_methods,
+        sizeof (struct iwm_softc)
 };
+
+static devclass_t iwm_devclass;
+
+DRIVER_MODULE(iwm, pci, iwm_pci_driver, iwm_devclass, NULL, NULL);
