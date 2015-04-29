@@ -6491,6 +6491,7 @@ iwm_attach(device_t dev)
 	uint8_t bands;
 
 	sc = device_get_softc(dev);
+	sc->sc_dev = dev;
 
 #ifdef notyet
 	task_set(&sc->sc_eswk, iwm_endscan_cb, sc);
@@ -6606,6 +6607,7 @@ iwm_attach(device_t dev)
 		goto fail3;
 	}
 
+#ifdef notyet
 	/* Allocate TX rings */
 	for (txq_i = 0; txq_i < nitems(sc->txq); txq_i++) {
 		if ((error = iwm_alloc_tx_ring(sc,
@@ -6622,7 +6624,6 @@ iwm_attach(device_t dev)
 		goto fail4;
 	}
 
-#ifdef notyet
 	sc->sc_eswq = taskq_create("iwmes", 1, IPL_NET, 0);
 	if (sc->sc_eswq == NULL)
 		goto fail4;
@@ -6698,9 +6699,11 @@ iwm_attach(device_t dev)
 
 	return 0;
 
+#ifdef notyet
 	/* Free allocated memory if something failed during attachment. */
 fail4:	while (--txq_i >= 0)
 		iwm_free_tx_ring(sc, &sc->txq[txq_i]);
+#endif
 	iwm_free_sched(sc);
 fail3:	if (sc->ict_dma.vaddr != NULL)
 		iwm_free_ict(sc);
