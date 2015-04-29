@@ -368,6 +368,8 @@ struct iwm_vap {
 	int (*iwm_newstate)(struct ieee80211vap *, enum ieee80211_state, int);
 };
 
+#define IWM_VAP(_vap)   ((struct iwm_vap *)(_vap))
+
 struct iwm_softc {
 	struct ifnet *sc_ifp;
 	device_t sc_dev;
@@ -375,8 +377,10 @@ struct iwm_softc {
 
 	int sc_newstate_pending;
 
-	struct ieee80211_amrr sc_amrr;
+	uint8_t sc_bssid[IEEE80211_ADDR_LEN];
+
 #ifdef notyet
+	struct ieee80211_amrr sc_amrr;
 	struct timeout sc_calib_to;
 #endif
 
@@ -510,7 +514,6 @@ struct iwm_node {
 	int in_assoc;
 
 	struct iwm_lq_cmd in_lq;
-	struct ieee80211_amrr_node in_amn;
 
 	uint8_t in_ridx[IEEE80211_RATE_MAXSIZE];
 };

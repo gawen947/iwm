@@ -123,6 +123,7 @@ __FBSDID("$FreeBSD$");
 
 #include <machine/bus.h>
 #include <machine/endian.h>
+#include <machine/resource.h>
 
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
@@ -406,7 +407,7 @@ void	iwm_calib_timeout(void *);
 void	iwm_setrates(struct iwm_node *);
 int	iwm_media_change(struct ifnet *);
 void	iwm_newstate_cb(void *);
-int	iwm_newstate(struct ieee80211com *, enum ieee80211_state, int);
+int	iwm_newstate(struct ieee80211vap *, enum ieee80211_state, int);
 void	iwm_endscan_cb(void *);
 int	iwm_init_hw(struct iwm_softc *);
 void	iwm_init(void *);
@@ -894,7 +895,7 @@ iwm_dma_contig_alloc(bus_dma_tag_t tag, struct iwm_dma_info *dma,
 		goto fail;
 
 	memset(dma->vaddr, 0, size);
-	bus_dmamap_sync(tag, dma->map, 0, size, BUS_DMASYNC_PREWRITE);
+	bus_dmamap_sync(tag, dma->map, BUS_DMASYNC_PREWRITE);
 	dma->paddr = dma->map->dm_segs[0].ds_addr;
 
 	return 0;
@@ -911,7 +912,7 @@ iwm_dma_contig_free(struct iwm_dma_info *dma)
 #ifdef notyet
 	if (dma->map != NULL) {
 		if (dma->vaddr != NULL) {
-			bus_dmamap_sync(dma->tag, dma->map, 0, dma->size,
+			bus_dmamap_sync(dma->tag, dma->map,
 			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 			bus_dmamap_unload(dma->tag, dma->map);
 			bus_dmamem_unmap(dma->tag, dma->vaddr, dma->size);
@@ -1061,7 +1062,6 @@ iwm_reset_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 void
 iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 {
-#ifdef notyet
 	int i;
 
 	iwm_dma_contig_free(&ring->desc_dma);
@@ -1071,21 +1071,19 @@ iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 		struct iwm_rx_data *data = &ring->data[i];
 
 		if (data->m != NULL) {
-			bus_dmamap_sync(sc->sc_dmat, data->map, 0,
-			    data->map->dm_mapsize, BUS_DMASYNC_POSTREAD);
+			bus_dmamap_sync(sc->sc_dmat, data->map,
+			    BUS_DMASYNC_POSTREAD);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
 		}
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
 	}
-#endif
 }
 
 int
 iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 {
-#ifdef notyet
 	bus_addr_t paddr;
 	bus_size_t size;
 	int i, error;
@@ -1128,8 +1126,7 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 		    + offsetof(struct iwm_tx_cmd, scratch);
 		paddr += sizeof(struct iwm_device_cmd);
 
-		error = bus_dmamap_create(sc->sc_dmat, MCLBYTES,
-		    IWM_NUM_OF_TBS, MCLBYTES, 0, BUS_DMA_NOWAIT, &data->map);
+		error = bus_dmamap_create(sc->sc_dmat, 0, &data->map);
 		if (error != 0) {
 			printf("%s: could not create TX buf DMA map\n", DEVNAME(sc));
 			goto fail;
@@ -1140,8 +1137,6 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 
 fail:	iwm_free_tx_ring(sc, ring);
 	return error;
-#endif
-	return 0;
 }
 
 void
@@ -1154,8 +1149,8 @@ iwm_reset_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 		struct iwm_tx_data *data = &ring->data[i];
 
 		if (data->m != NULL) {
-			bus_dmamap_sync(sc->sc_dmat, data->map, 0,
-			    data->map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
+			bus_dmamap_sync(sc->sc_dmat, data->map,
+			    BUS_DMASYNC_POSTWRITE);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
 			data->m = NULL;
@@ -1163,8 +1158,8 @@ iwm_reset_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 	}
 	/* Clear TX descriptors. */
 	memset(ring->desc, 0, ring->desc_dma.size);
-	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map, 0,
-	    ring->desc_dma.size, BUS_DMASYNC_PREWRITE);
+	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
+	    BUS_DMASYNC_PREWRITE);
 	sc->qfullmsk &= ~(1 << ring->qid);
 	ring->queued = 0;
 	ring->cur = 0;
@@ -1184,8 +1179,8 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 		struct iwm_tx_data *data = &ring->data[i];
 
 		if (data->m != NULL) {
-			bus_dmamap_sync(sc->sc_dmat, data->map, 0,
-			    data->map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
+			bus_dmamap_sync(sc->sc_dmat, data->map,
+			    BUS_DMASYNC_POSTWRITE);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
 		}
@@ -2657,10 +2652,8 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 
 	/* Copy firmware section into pre-allocated DMA-safe memory. */
 	memcpy(dma->vaddr, section, byte_cnt);
-#ifdef notyet
-	bus_dmamap_sync(sc->sc_dmat,
-	    dma->map, 0, byte_cnt, BUS_DMASYNC_PREWRITE);
-#endif
+	bus_dmamap_sync(sc->sc_dmat, dma->map, BUS_DMASYNC_PREWRITE);
+
 	if (!iwm_nic_lock(sc))
 		return EBUSY;
 
@@ -2896,16 +2889,19 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	struct mbuf *m;
 	int error;
 	int fatal = 0;
+	bus_dma_segment_t segs[20]; /* XXX */
+	int nsegs = 0;
 
-	m = m_gethdr(M_NOWAIT, MT_DATA);
+#ifdef notyet
+	if (size <= MCLBYTES) {
+		MCLGET(m, M_NOWAIT);
+	} else
+#endif
+		m = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, IWM_RBUF_SIZE);
+
 	if (m == NULL)
 		return ENOBUFS;
 
-	if (size <= MCLBYTES) {
-		MCLGET(m, M_NOWAIT);
-	} else {
-		MCLGETI(m, M_NOWAIT, NULL, IWM_RBUF_SIZE);
-	}
 	if ((m->m_flags & M_EXT) == 0) {
 		m_freem(m);
 		return ENOBUFS;
@@ -2917,8 +2913,8 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	}
 
 	m->m_len = m->m_pkthdr.len = m->m_ext.ext_size;
-	if ((error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
-	    BUS_DMA_READ|BUS_DMA_NOWAIT)) != 0) {
+	if ((error = bus_dmamap_load_mbuf_sg(sc->sc_dmat, data->map, m,
+	    segs, &nsegs, BUS_DMA_NOWAIT)) != 0) {
 		/* XXX */
 		if (fatal)
 			panic("iwm: could not load RX mbuf");
@@ -2926,12 +2922,14 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 		return error;
 	}
 	data->m = m;
-	bus_dmamap_sync(sc->sc_dmat, data->map, 0, size, BUS_DMASYNC_PREREAD);
+	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_PREREAD);
 
+#ifdef notyet
 	/* Update RX descriptor. */
 	ring->desc[idx] = htole32(data->map->dm_segs[0].ds_addr >> 8);
 	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
-	    idx * sizeof(uint32_t), sizeof(uint32_t), BUS_DMASYNC_PREWRITE);
+	    BUS_DMASYNC_PREWRITE);
+#endif
 
 	return 0;
 }
@@ -3006,8 +3004,7 @@ iwm_mvm_rx_rx_phy_cmd(struct iwm_softc *sc,
 	struct iwm_rx_phy_info *phy_info = (void *)pkt->data;
 
 	DPRINTFN(20, ("received PHY stats\n"));
-	bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*pkt),
-	    sizeof(*phy_info), BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	memcpy(&sc->sc_last_phy_info, phy_info, sizeof(sc->sc_last_phy_info));
 }
@@ -3046,7 +3043,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	struct ieee80211_frame *wh;
 	struct ieee80211_node *ni;
 	struct ieee80211_channel *c = NULL;
-	struct ieee80211_rxinfo rxi;
+//	struct ieee80211_rxinfo rxi;
 	struct mbuf *m;
 	struct iwm_rx_phy_info *phy_info;
 	struct iwm_rx_mpdu_res_start *rx_res;
@@ -3055,8 +3052,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	uint32_t rx_pkt_status;
 	int rssi;
 
-	bus_dmamap_sync(sc->sc_dmat, data->map, 0, IWM_RBUF_SIZE,
-	    BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	phy_info = &sc->sc_last_phy_info;
 	rx_res = (struct iwm_rx_mpdu_res_start *)pkt->data;
@@ -3088,7 +3084,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		rssi = iwm_mvm_calc_rssi(sc, phy_info);
 	}
 	rssi = (0 - IWM_MIN_DBM) + rssi;	/* normalize */
-	rssi = MIN(rssi, ic->ic_max_rssi);	/* clip to max. 100% */
+//	rssi = MIN(rssi, ic->ic_max_rssi);	/* clip to max. 100% */
 
 	/* replenish ring for the buffer we're going to feed to the sharks */
 	if (iwm_rx_addbuf(sc, IWM_RBUF_SIZE, sc->rxq.cur) != 0)
@@ -3098,14 +3094,17 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		if (le32toh(phy_info->channel) < nitems(ic->ic_channels))
 			c = &ic->ic_channels[le32toh(phy_info->channel)];
 	}
-
+#ifdef notyet
 	memset(&rxi, 0, sizeof(rxi));
 	rxi.rxi_rssi = rssi;
 	rxi.rxi_tstamp = device_timestamp;
 	ni = ieee80211_find_rxnode(ic, wh);
+#endif
+	return;
 	if (c)
 		ni->ni_chan = c;
 
+#ifdef notyet
 	if (sc->sc_drvbpf != NULL) {
 		struct mbuf mb;
 		struct iwm_rx_radiotap_header *tap = &sc->sc_rxtap;
@@ -3150,38 +3149,41 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 
 	ieee80211_input(sc->sc_ifp, m, ni, &rxi);
 	ieee80211_release_node(ic, ni);
+#endif
 }
 
 void
 iwm_mvm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	struct iwm_node *in)
 {
-	struct ieee80211com *ic = sc->sc_ic;
+//	struct ieee80211com *ic = sc->sc_ic;
 	struct ifnet *ifp = sc->sc_ifp;
 	struct iwm_mvm_tx_resp *tx_resp = (void *)pkt->data;
 	int status = le16toh(tx_resp->status.status) & IWM_TX_STATUS_MSK;
-	int failack = tx_resp->failure_frame;
+	//int failack = tx_resp->failure_frame;
 
 	KASSERT(tx_resp->frame_count == 1);
 
+#ifdef notyet
 	/* Update rate control statistics. */
 	in->in_amn.amn_txcnt++;
 	if (failack > 0) {
 		in->in_amn.amn_retrycnt++;
 	}
+#endif
 
 	if (status != IWM_TX_STATUS_SUCCESS &&
 	    status != IWM_TX_STATUS_DIRECT_DONE)
-		ifp->if_oerrors++;
+		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 	else
-		ifp->if_opackets++;
+		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
 }
 
 void
 iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 	struct iwm_rx_packet *pkt, struct iwm_rx_data *data)
 {
-	struct ieee80211com *ic = sc->sc_ic;
+//	struct ieee80211com *ic = sc->sc_ic;
 	struct ifnet *ifp = sc->sc_ifp;
 	struct iwm_cmd_header *cmd_hdr = &pkt->hdr;
 	int idx = cmd_hdr->idx;
@@ -3196,16 +3198,14 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 		return;
 	}
 
-	bus_dmamap_sync(sc->sc_dmat, data->map, 0, IWM_RBUF_SIZE,
-	    BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	sc->sc_tx_timer = 0;
 
 	iwm_mvm_rx_tx_cmd_single(sc, pkt, in);
 
 	/* Unmap and free mbuf. */
-	bus_dmamap_sync(sc->sc_dmat, txd->map, 0, txd->map->dm_mapsize,
-	    BUS_DMASYNC_POSTWRITE);
+	bus_dmamap_sync(sc->sc_dmat, txd->map, BUS_DMASYNC_POSTWRITE);
 	bus_dmamap_unload(sc->sc_dmat, txd->map);
 	m_freem(txd->m);
 
@@ -3216,12 +3216,12 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 
 	txd->m = NULL;
 	txd->in = NULL;
-	ieee80211_release_node(ic, &in->in_ni);
+//	ieee80211_release_node(ic, &in->in_ni);
 
 	if (--ring->queued < IWM_TX_RING_LOMARK) {
 		sc->qfullmsk &= ~(1 << ring->qid);
-		if (sc->qfullmsk == 0 && (ifp->if_flags & IFF_OACTIVE)) {
-			ifp->if_flags &= ~IFF_OACTIVE;
+		if (sc->qfullmsk == 0 && (ifp->if_flags & IFF_DRV_OACTIVE)) {
+			ifp->if_flags &= ~IFF_DRV_OACTIVE;
 			/*
 			 * Well, we're in interrupt context, but then again
 			 * I guess net80211 does all sorts of stunts in
@@ -3461,26 +3461,27 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 			error = EINVAL;
 			goto out;
 		}
-		m = m_gethdr(M_NOWAIT, MT_DATA);
+		m = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, IWM_RBUF_SIZE);
 		if (m == NULL) {
 			error = ENOMEM;
 			goto out;
 		}
-		MCLGETI(m, M_NOWAIT, NULL, IWM_RBUF_SIZE);
 		if (!(m->m_flags & M_EXT)) {
 			m_freem(m);
 			error = ENOMEM;
 			goto out;
 		}
 		cmd = mtod(m, struct iwm_device_cmd *);
+#ifdef notyet
 		error = bus_dmamap_load(sc->sc_dmat, data->map, cmd,
-		    hcmd->len[0], NULL, BUS_DMA_NOWAIT | BUS_DMA_WRITE);
+		    hcmd->len[0], NULL, BUS_DMA_NOWAIT);
+#endif
 		if (error != 0) {
 			m_freem(m);
 			goto out;
 		}
 		data->m = m;
-		paddr = data->map->dm_segs[0].ds_addr;
+//		paddr = data->map->dm_segs[0].ds_addr;
 	} else {
 		cmd = &ring->cmd[ring->cur];
 		paddr = data->cmd_paddr;
@@ -3511,16 +3512,13 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	    async ? " (async)" : ""));
 
 	if (hcmd->len[0] > sizeof(cmd->data)) {
-		bus_dmamap_sync(sc->sc_dmat, data->map, 0, hcmd->len[0],
-		    BUS_DMASYNC_PREWRITE);
+		bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_PREWRITE);
 	} else {
 		bus_dmamap_sync(sc->sc_dmat, ring->cmd_dma.map,
-		    (char *)(void *)cmd - (char *)(void *)ring->cmd_dma.vaddr,
-		    hcmd->len[0] + 4, BUS_DMASYNC_PREWRITE);
+		    BUS_DMASYNC_PREWRITE);
 	}
 	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
-	    (char *)(void *)desc - (char *)(void *)ring->desc_dma.vaddr,
-	    sizeof (*desc), BUS_DMASYNC_PREWRITE);
+	    BUS_DMASYNC_PREWRITE);
 
 	IWM_SETBITS(sc, IWM_CSR_GP_CNTRL,
 	    IWM_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
@@ -3665,8 +3663,8 @@ iwm_cmd_done(struct iwm_softc *sc, struct iwm_rx_packet *pkt)
 
 	/* If the command was mapped in an mbuf, free it. */
 	if (data->m != NULL) {
-		bus_dmamap_sync(sc->sc_dmat, data->map, 0,
-		    data->map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
+		bus_dmamap_sync(sc->sc_dmat, data->map,
+		    BUS_DMASYNC_POSTWRITE);
 		bus_dmamap_unload(sc->sc_dmat, data->map);
 		m_freem(data->m);
 		data->m = NULL;
@@ -3696,16 +3694,13 @@ iwm_update_sched(struct iwm_softc *sc, int qid, int idx, uint8_t sta_id,
 	/* Update TX scheduler. */
 	scd_bc_tbl[qid].tfd_offset[idx] = w_val;
 	bus_dmamap_sync(sc->sc_dmat, sc->sched_dma.map,
-	    (char *)(void *)w - (char *)(void *)sc->sched_dma.vaddr,
-	    sizeof(uint16_t), BUS_DMASYNC_PREWRITE);
+	    BUS_DMASYNC_PREWRITE);
 
 	/* I really wonder what this is ?!? */
 	if (idx < IWM_TFD_QUEUE_SIZE_BC_DUP) {
 		scd_bc_tbl[qid].tfd_offset[IWM_TFD_QUEUE_SIZE_MAX + idx] = w_val;
 		bus_dmamap_sync(sc->sc_dmat, sc->sched_dma.map,
-		    (char *)(void *)(w + IWM_TFD_QUEUE_SIZE_MAX) -
-		    (char *)(void *)sc->sched_dma.vaddr,
-		    sizeof (uint16_t), BUS_DMASYNC_PREWRITE);
+		    BUS_DMASYNC_PREWRITE);
 	}
 }
 #endif
@@ -3733,8 +3728,8 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 		/* for non-data, use the lowest supported rate */
 		ridx = (ic->ic_curmode == IEEE80211_MODE_11A) ?
 		    IWM_RIDX_OFDM : IWM_RIDX_CCK;
-	} else if (ic->ic_fixed_rate != -1) {
-		ridx = sc->sc_fixed_ridx;
+//	} else if (ic->ic_fixed_rate != -1) {
+//		ridx = sc->sc_fixed_ridx;
 	} else {
 		/* for data frames, use RS table */
 		tx->initial_rate_index = (nrates - 1) - ni->ni_txrate;
@@ -3757,6 +3752,7 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 int
 iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 {
+#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
 	struct iwm_node *in = (void *)ni;
 	struct iwm_tx_ring *ring;
@@ -3774,6 +3770,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	uint8_t tid, type;
 	int i, totlen, error, pad;
 	int hdrlen2;
+
 
 	wh = mtod(m, struct ieee80211_frame *);
 	hdrlen = ieee80211_get_hdrlen(wh);
@@ -3806,6 +3803,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 
 	rinfo = iwm_tx_fill_cmd(sc, in, wh, tx);
 
+#ifdef notyet
 	if (sc->sc_drvbpf != NULL) {
 		struct mbuf mb;
 		struct iwm_tx_radiotap_header *tap = &sc->sc_txtap;
@@ -3828,6 +3826,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_OUT);
 	}
 
+
 	/* Encrypt the frame if need be. */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
 		/* Retrieve key for TX && do software encryption. */
@@ -3837,6 +3836,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		/* 802.11 header may have moved. */
 		wh = mtod(m, struct ieee80211_frame *);
 	}
+#endif
 	totlen = m->m_pkthdr.len;
 
 	flags = 0;
@@ -3844,11 +3844,13 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		flags |= IWM_TX_CMD_FLG_ACK;
 	}
 
+#ifdef notyet
 	if (type != IEEE80211_FC0_TYPE_DATA
 	    && (totlen + IEEE80211_CRC_LEN > ic->ic_rtsthreshold)
 	    && !IEEE80211_IS_MULTICAST(wh->i_addr1)) {
 		flags |= IWM_TX_CMD_FLG_PROT_REQUIRE;
 	}
+#endif
 
 	if (IEEE80211_IS_MULTICAST(wh->i_addr1) ||
 	    type != IEEE80211_FC0_TYPE_DATA)
@@ -3896,9 +3898,10 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 
 	/* Trim 802.11 header. */
 	m_adj(m, hdrlen);
-
+#ifdef notyet
 	error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
-	    BUS_DMA_NOWAIT | BUS_DMA_WRITE);
+	    BUS_DMA_NOWAIT);
+#endif
 	if (error != 0) {
 		if (error != EFBIG) {
 			printf("%s: can't map mbuf (error %d)\n", DEVNAME(sc),
@@ -3924,15 +3927,16 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		m1->m_pkthdr.len = m1->m_len = m->m_pkthdr.len;
 		m_freem(m);
 		m = m1;
-
+#ifdef notyet
 		error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
-		    BUS_DMA_NOWAIT | BUS_DMA_WRITE);
+		    BUS_DMA_NOWAIT);
 		if (error != 0) {
 			printf("%s: can't map mbuf (error %d)\n", DEVNAME(sc),
 			    error);
 			m_freem(m);
 			return error;
 		}
+#endif
 	}
 	data->m = m;
 	data->in = in;
@@ -3945,7 +3949,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	    ring->qid, ring->cur, totlen, data->map->dm_nsegs));
 
 	/* Fill TX descriptor. */
-	desc->num_tbs = 2 + data->map->dm_nsegs;
+//	desc->num_tbs = 2 + data->map->dm_nsegs;
 
 	desc->tbs[0].lo = htole32(data->cmd_paddr);
 	desc->tbs[0].hi_n_len = htole16(iwm_get_dma_hi_addr(data->cmd_paddr)) |
@@ -3955,6 +3959,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	    ((sizeof(struct iwm_cmd_header) + sizeof(*tx)
 	      + hdrlen + pad - TB0_SIZE) << 4);
 
+#ifdef notyet
 	/* Other DMA segments are for data payload. */
 	seg = data->map->dm_segs;
 	for (i = 0; i < data->map->dm_nsegs; i++, seg++) {
@@ -3963,15 +3968,14 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		    htole16(iwm_get_dma_hi_addr(seg->ds_addr))
 		    | ((seg->ds_len) << 4);
 	}
+#endif
 
-	bus_dmamap_sync(sc->sc_dmat, data->map, 0, data->map->dm_mapsize,
+	bus_dmamap_sync(sc->sc_dmat, data->map,
 	    BUS_DMASYNC_PREWRITE);
 	bus_dmamap_sync(sc->sc_dmat, ring->cmd_dma.map,
-	    (char *)(void *)cmd - (char *)(void *)ring->cmd_dma.vaddr,
-	    sizeof (*cmd), BUS_DMASYNC_PREWRITE);
+	    BUS_DMASYNC_PREWRITE);
 	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
-	    (char *)(void *)desc - (char *)(void *)ring->desc_dma.vaddr,
-	    sizeof (*desc), BUS_DMASYNC_PREWRITE);
+	    BUS_DMASYNC_PREWRITE);
 
 #if 0
 	iwm_update_sched(sc, ring->qid, ring->cur, tx->sta_id, le16toh(tx->len));
@@ -3985,7 +3989,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	if (++ring->queued > IWM_TX_RING_HIMARK) {
 		sc->qfullmsk |= 1 << ring->qid;
 	}
-
+#endif
 	return 0;
 }
 
@@ -4119,6 +4123,7 @@ void
 iwm_mvm_power_build_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	struct iwm_mac_power_cmd *cmd)
 {
+#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni = &in->in_ni;
 	int dtimper, dtimper_msec;
@@ -4139,6 +4144,7 @@ iwm_mvm_power_build_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	    = MAX(3 * dtimper_msec, 1000 * IWM_POWER_KEEP_ALIVE_PERIOD_SEC);
 	keep_alive = roundup(keep_alive, 1000) / 1000;
 	cmd->keep_alive_seconds = htole16(keep_alive);
+#endif
 }
 
 int
@@ -4536,6 +4542,7 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 {
 	int len = 0;
 	uint8_t *pos = NULL;
+	struct ifnet *ifp = sc->sc_ifp;
 
 	/* Make sure there is enough space for the probe request,
 	 * two mandatory IEs and the data */
@@ -4546,9 +4553,9 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 	frame->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT |
 	    IEEE80211_FC0_SUBTYPE_PROBE_REQ;
 	frame->i_fc[1] = IEEE80211_FC1_DIR_NODS;
-	IEEE80211_ADDR_COPY(frame->i_addr1, etherbroadcastaddr);
+	IEEE80211_ADDR_COPY(frame->i_addr1, ifp->if_broadcastaddr);
 	memcpy(frame->i_addr2, ta, ETHER_ADDR_LEN);
-	IEEE80211_ADDR_COPY(frame->i_addr3, etherbroadcastaddr);
+	IEEE80211_ADDR_COPY(frame->i_addr3, ifp->if_broadcastaddr);
 
 	len += sizeof(*frame);
 	CTASSERT(sizeof(*frame) == 24);
@@ -4647,7 +4654,7 @@ iwm_mvm_scan_request(struct iwm_softc *sc, int flags,
 
 	cmd->tx_cmd.len = htole16(iwm_mvm_fill_probe_req(sc,
 			    (struct ieee80211_frame *)cmd->data,
-			    ic->ic_myaddr, n_ssids, ssid, ssid_len,
+			    sc->sc_bssid, n_ssids, ssid, ssid_len,
 			    NULL, 0, sc->sc_capa_max_probe_len));
 
 	cmd->channel_count
@@ -4767,6 +4774,7 @@ void
 iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	struct iwm_mac_ctx_cmd *cmd, uint32_t action)
 {
+#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni = ic->ic_bss;
 	int cck_ack_rates, ofdm_ack_rates;
@@ -4779,7 +4787,7 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	cmd->mac_type = htole32(IWM_FW_MAC_TYPE_BSS_STA);
 	cmd->tsf_id = htole32(in->in_tsfid);
 
-	IEEE80211_ADDR_COPY(cmd->node_addr, ic->ic_myaddr);
+	IEEE80211_ADDR_COPY(cmd->node_addr, sc->sc_bssid);
 	if (in->in_assoc) {
 		IEEE80211_ADDR_COPY(cmd->bssid_addr, ni->ni_bssid);
 	} else {
@@ -4810,6 +4818,7 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 		cmd->protection_flags |= htole32(IWM_MAC_PROT_FLG_TGG_PROTECT);
 
 	cmd->filter_flags = htole32(IWM_MAC_FILTER_ACCEPT_GRP);
+#endif
 }
 
 int
@@ -4830,6 +4839,7 @@ void
 iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	struct iwm_mac_data_sta *ctxt_sta, int force_assoc_off)
 {
+#ifdef notyet
 	struct ieee80211_node *ni = &in->in_ni;
 	unsigned dtim_period, dtim_count;
 	struct ieee80211com *ic = sc->sc_ic;
@@ -4887,6 +4897,7 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	/* 10 = CONN_MAX_LISTEN_INTERVAL */
 	ctxt_sta->listen_interval = htole32(10);
 	ctxt_sta->assoc_id = htole32(ni->ni_associd);
+#endif
 }
 
 int
@@ -4902,9 +4913,9 @@ iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct iwm_node *in,
 
 	/* Allow beacons to pass through as long as we are not associated,or we
 	 * do not have dtim period information */
-	if (!in->in_assoc || !sc->sc_ic.ic_dtim_period)
-		cmd.filter_flags |= htole32(IWM_MAC_FILTER_IN_BEACON);
-	else
+//	if (!in->in_assoc || !sc->sc_ic.ic_dtim_period)
+//		cmd.filter_flags |= htole32(IWM_MAC_FILTER_IN_BEACON);
+//	else
 		cmd.filter_flags &= ~htole32(IWM_MAC_FILTER_IN_BEACON);
 
 	/* Fill the data specific for station mode */
@@ -5057,6 +5068,7 @@ iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
 int
 iwm_auth(struct iwm_softc *sc)
 {
+#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
 	struct iwm_node *in = (void *)ic->ic_bss;
 	uint32_t duration;
@@ -5117,13 +5129,14 @@ iwm_auth(struct iwm_softc *sc)
 		}
 		tsleep(&sc->sc_auth_prot, 0, "iwmau2", 0);
 	}
-
+#endif
 	return 0;
 }
 
 int
 iwm_assoc(struct iwm_softc *sc)
 {
+#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
 	struct iwm_node *in = (void *)ic->ic_bss;
 	int error;
@@ -5138,6 +5151,7 @@ iwm_assoc(struct iwm_softc *sc)
 		DPRINTF(("%s: failed to update MAC\n", DEVNAME(sc)));
 		return error;
 	}
+#endif
 
 	return 0;
 }
@@ -5209,28 +5223,28 @@ iwm_node_alloc(struct ieee80211com *ic)
 void
 iwm_calib_timeout(void *arg)
 {
+#ifdef notyet
 	struct iwm_softc *sc = arg;
 	struct ieee80211com *ic = sc->sc_ic;
-	int s;
 
-	s = splnet();
 	if (ic->ic_fixed_rate == -1
 	    && ic->ic_opmode == IEEE80211_M_STA
 	    && ic->ic_bss) {
 		struct iwm_node *in = (void *)ic->ic_bss;
 		ieee80211_amrr_choose(&sc->sc_amrr, &in->in_ni, &in->in_amn);
 	}
-	splx(s);
 
 	timeout_add_msec(&sc->sc_calib_to, 500);
+#endif
 }
 
 void
 iwm_setrates(struct iwm_node *in)
 {
+#ifdef notyet
 	struct ieee80211_node *ni = &in->in_ni;
 	struct ieee80211com *ic = ni->ni_ic;
-	struct iwm_softc *sc = sc->sc_ifp;
+	struct iwm_softc *sc;
 	struct iwm_lq_cmd *lq = &in->in_lq;
 	int nrates = ni->ni_rates.rs_nrates;
 	int i, ridx, tab = 0;
@@ -5303,6 +5317,7 @@ iwm_setrates(struct iwm_node *in)
 	ieee80211_amrr_node_init(&sc->sc_amrr, &in->in_amn);
 	/* Start at lowest available bit-rate, AMRR will raise. */
 	ni->ni_txrate = 0;
+#endif
 }
 
 int
@@ -5317,6 +5332,7 @@ iwm_media_change(struct ifnet *ifp)
 	if (error != ENETRESET)
 		return error;
 
+#ifdef notyet
 	if (ic->ic_fixed_rate != -1) {
 		rate = ic->ic_sup_rates[ic->ic_curmode].
 		    rs_rates[ic->ic_fixed_rate] & IEEE80211_RATE_VAL;
@@ -5326,11 +5342,12 @@ iwm_media_change(struct ifnet *ifp)
 				break;
 		sc->sc_fixed_ridx = ridx;
 	}
+#endif
 
 	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) ==
 	    (IFF_UP | IFF_DRV_RUNNING)) {
 		iwm_stop(ifp, 0);
-		error = iwm_init(ifp);
+		iwm_init(ifp);
 	}
 	return error;
 }
@@ -5338,6 +5355,7 @@ iwm_media_change(struct ifnet *ifp)
 void
 iwm_newstate_cb(void *wk)
 {
+#ifdef notyet
 	struct iwm_newstate_state *iwmns = (void *)wk;
 	struct ieee80211com *ic = iwmns->ns_ic;
 	enum ieee80211_state nstate = iwmns->ns_nstate;
@@ -5351,6 +5369,7 @@ iwm_newstate_cb(void *wk)
 	free(iwmns, M_DEVBUF);
 
 	DPRINTF(("Prepare to switch state %d->%d\n", ic->ic_state, nstate));
+
 	if (sc->sc_generation != generation) {
 		DPRINTF(("newstate_cb: someone pulled the plug meanwhile\n"));
 		if (nstate == IEEE80211_S_INIT) {
@@ -5399,7 +5418,6 @@ iwm_newstate_cb(void *wk)
 	case IEEE80211_S_SCAN:
 		if (sc->sc_scanband)
 			break;
-
 		if ((error = iwm_mvm_scan_request(sc, IEEE80211_CHAN_2GHZ,
 		    ic->ic_des_esslen != 0,
 		    ic->ic_des_essid, ic->ic_des_esslen)) != 0) {
@@ -5444,7 +5462,7 @@ iwm_newstate_cb(void *wk)
 			DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
 		}
 
-		timeout_add_msec(&sc->sc_calib_to, 500);
+//		timeout_add_msec(&sc->sc_calib_to, 500);
 
 		break; }
 
@@ -5453,10 +5471,11 @@ iwm_newstate_cb(void *wk)
 	}
 
 	sc->sc_newstate(ic, nstate, arg);
+#endif
 }
 
 int
-iwm_newstate(struct ieee80211vap *ivap, enum ieee80211_state nstate, int arg)
+iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 {
 	struct iwm_vap *ivp = IWM_VAP(vap);
 	struct ieee80211com *ic = vap->iv_ic;
@@ -5478,8 +5497,10 @@ iwm_newstate(struct ieee80211vap *ivap, enum ieee80211_state nstate, int arg)
 	iwmns->ns_arg = arg;
 	iwmns->ns_generation = sc->sc_generation;
 
+#ifdef notyet
 	task_set(&iwmns->ns_wk, iwm_newstate_cb, iwmns);
 	task_add(sc->sc_nswq, &iwmns->ns_wk);
+#endif
 
 	return 0;
 }
@@ -5487,6 +5508,7 @@ iwm_newstate(struct ieee80211vap *ivap, enum ieee80211_state nstate, int arg)
 void
 iwm_endscan_cb(void *arg)
 {
+#ifdef notyet
 	struct iwm_softc *sc = arg;
 	struct ieee80211com *ic = sc->sc_ic;
 	int done;
@@ -5515,6 +5537,7 @@ iwm_endscan_cb(void *arg)
 		}
 		sc->sc_scanband = 0;
 	}
+#endif
 }
 
 int
@@ -5595,6 +5618,7 @@ iwm_init_hw(struct iwm_softc *sc)
 int
 iwm_allow_mcast(struct iwm_softc *sc)
 {
+#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni = ic->ic_bss;
 	struct iwm_mcast_filter_cmd *cmd;
@@ -5615,6 +5639,8 @@ iwm_allow_mcast(struct iwm_softc *sc)
 	    IWM_CMD_SYNC, size, cmd);
 	free(cmd, M_DEVBUF);
 	return error;
+#endif
+	return 0;
 }
 
 /*
@@ -5643,10 +5669,11 @@ iwm_init(void *arg)
  	 * Ok, firmware loaded and we are jogging
 	 */
 
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifp->if_flags &= ~IFF_DRV_OACTIVE;
 	ifp->if_flags |= IFF_DRV_RUNNING;
-
+#ifdef notyet
 	ieee80211_begin_scan(ifp);
+#endif
 	sc->sc_flags |= IWM_FLAG_HW_INITED;
 }
 
@@ -5657,6 +5684,7 @@ iwm_init(void *arg)
 void
 iwm_start(struct ifnet *ifp)
 {
+#ifdef notyet
 	struct iwm_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni;
@@ -5664,13 +5692,13 @@ iwm_start(struct ifnet *ifp)
 	struct mbuf *m;
 	int ac;
 
-	if ((ifp->if_flags & (IFF_DRV_RUNNING | IFF_OACTIVE)) != IFF_DRV_RUNNING)
+	if ((ifp->if_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) != IFF_DRV_RUNNING)
 		return;
 
 	for (;;) {
 		/* why isn't this done per-queue? */
 		if (sc->qfullmsk != 0) {
-			ifp->if_flags |= IFF_OACTIVE;
+			ifp->if_flags |= IFF_DRV_OACTIVE;
 			break;
 		}
 
@@ -5690,32 +5718,37 @@ iwm_start(struct ifnet *ifp)
 			break;
 		if (m->m_len < sizeof (*eh) &&
 		    (m = m_pullup(m, sizeof (*eh))) == NULL) {
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
+#ifdef notyet
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
+#endif
 		if ((m = ieee80211_encap(ifp, m, &ni)) == NULL) {
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
 
  sendit:
+#ifdef notyet
 		if (ic->ic_rawbpf != NULL)
 			bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_OUT);
+#endif
 		if (iwm_tx(sc, m, ni, ac) != 0) {
-			ieee80211_release_node(ic, ni);
-			ifp->if_oerrors++;
+//			ieee80211_release_node(ic, ni);
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
 
 		if (ifp->if_flags & IFF_UP) {
 			sc->sc_tx_timer = 15;
-			ifp->if_timer = 1;
+//			ifp->if_timer = 1;
 		}
 	}
 
 	return;
+#endif
 }
 
 void
@@ -5729,20 +5762,23 @@ iwm_stop(struct ifnet *ifp, int disable)
 	sc->sc_generation++;
 	sc->sc_scanband = 0;
 	sc->sc_auth_prot = 0;
-	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
-	ifp->if_flags &= ~(IFF_DRV_RUNNING | IFF_OACTIVE);
+//	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
+	ifp->if_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
 
+#ifdef notyet
 	if (ic->ic_state != IEEE80211_S_INIT)
 		ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
 
 	timeout_del(&sc->sc_calib_to);
 	ifp->if_timer = sc->sc_tx_timer = 0;
+#endif
 	iwm_stop_device(sc);
 }
 
 void
 iwm_watchdog(struct ifnet *ifp)
 {
+#ifdef notyet
 	struct iwm_softc *sc = ifp->if_softc;
 
 	ifp->if_timer = 0;
@@ -5754,13 +5790,14 @@ iwm_watchdog(struct ifnet *ifp)
 #endif
 			ifp->if_flags &= ~IFF_UP;
 			iwm_stop(ifp, 1);
-			ifp->if_oerrors++;
+			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			return;
 		}
 		ifp->if_timer = 1;
 	}
 
 	ieee80211_watchdog(ifp);
+#endif
 }
 
 int
@@ -5768,22 +5805,23 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 {
 	struct iwm_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = sc->sc_ic;
+        struct ifreq *ifr = (struct ifreq *) data;
 	int error = 0;
 
 	switch (cmd) {
 	case SIOCGIFADDR:
 		error = ether_ioctl(ifp, cmd, data);
 		break;
-	case SIOCGIFADDR:
-		error = ether_ioctl(ifp, cmd, data);
+        case SIOCGIFMEDIA:
+                error = ifmedia_ioctl(ifp, ifr, &ic->ic_media, cmd);
+                break;
+
                 break;
 	case SIOCSIFFLAGS:
 		if (ifp->if_flags & IFF_UP) {
 			if (!(ifp->if_flags & IFF_DRV_RUNNING)) {
-				if ((error = iwm_init(ifp)) != 0)
-					ifp->if_flags &= ~IFF_UP;
-				else
-					ieee80211_start_all(ic);
+				iwm_init(ifp);
+				ieee80211_start_all(ic);
 			}
 		} else {
 			if (ifp->if_flags & IFF_DRV_RUNNING)
@@ -5974,15 +6012,13 @@ iwm_nic_error(struct iwm_softc *sc)
 
 #define SYNC_RESP_STRUCT(_var_, _pkt_)					\
 do {									\
-	bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*(_pkt_)),	\
-	    sizeof(*(_var_)), BUS_DMASYNC_POSTREAD);			\
+	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);	\
 	_var_ = (void *)((_pkt_)+1);					\
 } while (/*CONSTCOND*/0)
 
 #define SYNC_RESP_PTR(_ptr_, _len_, _pkt_)				\
 do {									\
-	bus_dmamap_sync(sc->sc_dmat, data->map, sizeof(*(_pkt_)),	\
-	    sizeof(len), BUS_DMASYNC_POSTREAD);				\
+	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);	\
 	_ptr_ = (void *)((_pkt_)+1);					\
 } while (/*CONSTCOND*/0)
 
@@ -5998,7 +6034,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 	uint16_t hw;
 
 	bus_dmamap_sync(sc->sc_dmat, sc->rxq.stat_dma.map,
-	    0, sc->rxq.stat_dma.size, BUS_DMASYNC_POSTREAD);
+	    BUS_DMASYNC_POSTREAD);
 
 	hw = le16toh(sc->rxq.stat->closed_rb_num) & 0xfff;
 	while (sc->rxq.cur != hw) {
@@ -6007,7 +6043,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 		struct iwm_cmd_response *cresp;
 		int qid, idx;
 
-		bus_dmamap_sync(sc->sc_dmat, data->map, 0, sizeof(*pkt),
+		bus_dmamap_sync(sc->sc_dmat, data->map,
 		    BUS_DMASYNC_POSTREAD);
 		pkt = mtod(data->m, struct iwm_rx_packet *);
 
@@ -6077,8 +6113,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 
 		case IWM_NVM_ACCESS_CMD:
 			if (sc->sc_wantresp == ((qid << 16) | idx)) {
-				bus_dmamap_sync(sc->sc_dmat, data->map, 0,
-				    sizeof(sc->sc_cmd_resp),
+				bus_dmamap_sync(sc->sc_dmat, data->map,
 				    BUS_DMASYNC_POSTREAD);
 				memcpy(sc->sc_cmd_resp,
 				    pkt, sizeof(sc->sc_cmd_resp));
@@ -6120,8 +6155,9 @@ iwm_notif_intr(struct iwm_softc *sc)
 		case IWM_SCAN_COMPLETE_NOTIFICATION: {
 			struct iwm_scan_complete_notif *notif;
 			SYNC_RESP_STRUCT(notif, pkt);
-
+#ifdef notyet
 			task_add(sc->sc_eswq, &sc->sc_eswk);
+#endif
 			break; }
 
 		case IWM_REPLY_ERROR: {
@@ -6377,24 +6413,9 @@ int
 iwm_preinit(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = sc->sc_ic;
-	struct ifnet *ifp = sc->sc_ifp;
+//	struct ifnet *ifp = sc->sc_ifp;
 	int error;
 	static int attached;
-
-	ieee80211_ifattach(ifp);
-	ic->ic_raw_xmit;
-	ic->ic_scan_start;
-	ic->ic_scan_end;
-	ic->ic_set_channel;
-
-	ic->ic_vap_create;
-	ic->ic_vap_delete;
-	ic->ic_update_mcast;
-
-	iwm_radiotap_attach(sc);
-
-	if (bootverbose)
-		ieee80211_announce(ic);
 
 	if ((error = iwm_prepare_card_hw(sc)) != 0) {
 		printf("%s: could not initialize hardware\n", DEVNAME(sc));
@@ -6428,16 +6449,22 @@ iwm_preinit(struct iwm_softc *sc)
 		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
 
-	/* Reattach net80211 so MAC address and channel map are picked up. */
-	ieee80211_ifdetach(ifp);
-	ieee80211_ifattach(ifp);
+	ieee80211_ifattach(ic, sc->sc_bssid);
+#ifdef notyet
+	ic->ic_raw_xmit;
+	ic->ic_scan_start;
+	ic->ic_scan_end;
+	ic->ic_set_channel;
+
+	ic->ic_vap_create;
+	ic->ic_vap_delete;
+	ic->ic_update_mcast;
 
 	ic->ic_node_alloc = iwm_node_alloc;
-
-	/* Override 802.11 state transition machine. */
-	sc->sc_newstate = ic->ic_newstate;
-	ic->ic_newstate = iwm_newstate;
-	ieee80211_media_init(ifp, iwm_media_change, ieee80211_media_status);
+#endif
+	iwm_radiotap_attach(sc);
+	if (bootverbose)
+		ieee80211_announce(ic);
 
 	return 0;
 }
@@ -6458,18 +6485,16 @@ iwm_attach(device_t dev)
 	struct iwm_softc *sc;
 	struct ieee80211com *ic;
 	struct ifnet *ifp;
-	const char *intrstr;
 	int error, count, rid;
 	int txq_i, i;
 	uint16_t reg;
 	uint8_t bands;
 
 	sc = device_get_softc(dev);
-	sc->sc_pct = pa->pa_pc;
-	sc->sc_pcitag = pa->pa_tag;
-	sc->sc_dmat = pa->pa_dmat;
 
+#ifdef notyet
 	task_set(&sc->sc_eswk, iwm_endscan_cb, sc);
+#endif
 
 #ifdef notneeded
 	/*
@@ -6597,13 +6622,14 @@ iwm_attach(device_t dev)
 		goto fail4;
 	}
 
+#ifdef notyet
 	sc->sc_eswq = taskq_create("iwmes", 1, IPL_NET, 0);
 	if (sc->sc_eswq == NULL)
 		goto fail4;
 	sc->sc_nswq = taskq_create("iwmns", 1, IPL_NET, 0);
 	if (sc->sc_nswq == NULL)
 		goto fail4;
-
+#endif
 	/* Clear pending interrupts. */
 	IWM_WRITE(sc, IWM_CSR_INT, 0xffffffff);
 
@@ -6643,10 +6669,10 @@ iwm_attach(device_t dev)
 		sc->sc_phyctxt[i].id = i;
 	}
 
+#ifdef notyet
 	sc->sc_amrr.amrr_min_success_threshold =  1;
 	sc->sc_amrr.amrr_max_success_threshold = 15;
 
-#ifdef notyet
 	/* IBSS channel undefined for now. */
 	ic->ic_ibss_chan = &ic->ic_channels[1];
 
@@ -6736,6 +6762,7 @@ iwm_resume(device_t dev)
 
 	iwm_init_task(sc);
 #endif
+	return 0;
 }
 
 static int
