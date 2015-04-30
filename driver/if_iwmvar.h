@@ -253,6 +253,7 @@ struct iwm_tx_ring {
 	struct iwm_dma_info	cmd_dma;
 	struct iwm_tfd		*desc;
 	struct iwm_device_cmd	*cmd;
+	bus_dma_tag_t		data_dmat;
 	struct iwm_tx_data	data[IWM_TX_RING_COUNT];
 	int			qid;
 	int			queued;
@@ -263,6 +264,8 @@ struct iwm_tx_ring {
 #define IWM_RBUF_COUNT		(IWM_RX_RING_COUNT + 32)
 /* Linux driver optionally uses 8k buffer */
 #define IWM_RBUF_SIZE		4096
+
+#define	IWM_MAX_SCATTER		20
 
 struct iwm_softc;
 struct iwm_rbuf {
@@ -284,6 +287,7 @@ struct iwm_rx_ring {
 	uint32_t		*desc;
 	struct iwm_rb_status	*stat;
 	struct iwm_rx_data	data[IWM_RX_RING_COUNT];
+	bus_dma_tag_t           data_dmat;
 	int			cur;
 };
 

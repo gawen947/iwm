@@ -544,7 +544,6 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	 * fw_rawdata and fw_rawsize will be set.
 	 */
 	fwp = firmware_get(sc->sc_fwname);
-
 	if (fwp == NULL) {
 		printf("%s: could not read firmware %s (error %d)\n",
 		    DEVNAME(sc), sc->sc_fwname, error);
@@ -876,8 +875,7 @@ int
 iwm_dma_contig_alloc(bus_dma_tag_t tag, struct iwm_dma_info *dma,
     bus_size_t size, bus_size_t alignment)
 {
-	int nsegs, error;
-	caddr_t va;
+	int error;
 
 	dma->tag = NULL;
 	dma->size = size;
@@ -1015,6 +1013,18 @@ iwm_alloc_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 	}
 	ring->stat = ring->stat_dma.vaddr;
 
+        /* Create RX buffer DMA tag. */
+        error = bus_dma_tag_create(sc->sc_dmat, 1, 0,
+            BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL,
+            IWM_RBUF_SIZE, 1, IWM_RBUF_SIZE, BUS_DMA_NOWAIT, NULL, NULL,
+            &ring->data_dmat);
+        if (error != 0) {
+                device_printf(sc->sc_dev,
+                    "%s: could not create RX buf DMA tag, error %d\n",
+                    __func__, error);
+                goto fail;
+        }
+
 	/*
 	 * Allocate and map RX buffers.
 	 */
@@ -1073,14 +1083,19 @@ iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 		struct iwm_rx_data *data = &ring->data[i];
 
 		if (data->m != NULL) {
-			bus_dmamap_sync(sc->sc_dmat, data->map,
+			bus_dmamap_sync(ring->data_dmat, data->map,
 			    BUS_DMASYNC_POSTREAD);
-			bus_dmamap_unload(sc->sc_dmat, data->map);
+			bus_dmamap_unload(ring->data_dmat, data->map);
 			m_freem(data->m);
+			data->m = NULL;
 		}
-		if (data->map != NULL)
-			bus_dmamap_destroy(sc->sc_dmat, data->map);
+		if (data->map != NULL) {
+			bus_dmamap_destroy(ring->data_dmat, data->map);
+			data->map = NULL;
+		}
 	}
+	bus_dma_tag_destroy(ring->data_dmat);
+	ring->data_dmat = NULL;
 }
 
 int
@@ -1119,6 +1134,15 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 	}
 	ring->cmd = ring->cmd_dma.vaddr;
 
+	error = bus_dma_tag_create(sc->sc_dmat, 1, 0,
+	    BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL, MCLBYTES,
+            IWM_MAX_SCATTER - 1, MCLBYTES, BUS_DMA_NOWAIT, NULL, NULL,
+            &ring->data_dmat);
+	if (error != 0) {
+		device_printf(sc->sc_dev, "could not create TX buf DMA tag\n");
+		goto fail;
+	}
+
 	paddr = ring->cmd_dma.paddr;
 	for (i = 0; i < IWM_TX_RING_COUNT; i++) {
 		struct iwm_tx_data *data = &ring->data[i];
@@ -1128,7 +1152,7 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 		    + offsetof(struct iwm_tx_cmd, scratch);
 		paddr += sizeof(struct iwm_device_cmd);
 
-		error = bus_dmamap_create(sc->sc_dmat, 0, &data->map);
+		error = bus_dmamap_create(ring->data_dmat, 0, &data->map);
 		if (error != 0) {
 			printf("%s: could not create TX buf DMA map\n", DEVNAME(sc));
 			goto fail;
@@ -1171,7 +1195,6 @@ iwm_reset_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 void
 iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 {
-#ifdef notyet
 	int i;
 
 	iwm_dma_contig_free(&ring->desc_dma);
@@ -1181,15 +1204,19 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 		struct iwm_tx_data *data = &ring->data[i];
 
 		if (data->m != NULL) {
-			bus_dmamap_sync(sc->sc_dmat, data->map,
+			bus_dmamap_sync(ring->data_dmat, data->map,
 			    BUS_DMASYNC_POSTWRITE);
-			bus_dmamap_unload(sc->sc_dmat, data->map);
+			bus_dmamap_unload(ring->data_dmat, data->map);
 			m_freem(data->m);
+			data->m = NULL;
 		}
-		if (data->map != NULL)
+		if (data->map != NULL) {
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
+			data->map = NULL;
+		}
 	}
-#endif
+	bus_dma_tag_destroy(ring->data_dmat);
+	ring->data_dmat = NULL;
 }
 
 /*
@@ -2891,7 +2918,7 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	struct mbuf *m;
 	int error;
 	int fatal = 0;
-	bus_dma_segment_t segs[20]; /* XXX */
+	bus_dma_segment_t segs[IWM_MAX_SCATTER];
 	int nsegs = 0;
 
 #ifdef notyet
@@ -6598,7 +6625,6 @@ iwm_attach(device_t dev)
 		goto fail3;
 	}
 
-#ifdef notyet
 	/* Allocate TX rings */
 	for (txq_i = 0; txq_i < nitems(sc->txq); txq_i++) {
 		if ((error = iwm_alloc_tx_ring(sc,
@@ -6615,6 +6641,7 @@ iwm_attach(device_t dev)
 		goto fail4;
 	}
 
+#ifdef notyet
 	sc->sc_eswq = taskq_create("iwmes", 1, IPL_NET, 0);
 	if (sc->sc_eswq == NULL)
 		goto fail4;
@@ -6690,11 +6717,9 @@ iwm_attach(device_t dev)
 
 	return 0;
 
-#ifdef notyet
 	/* Free allocated memory if something failed during attachment. */
 fail4:	while (--txq_i >= 0)
 		iwm_free_tx_ring(sc, &sc->txq[txq_i]);
-#endif
 	iwm_free_sched(sc);
 fail3:	if (sc->ict_dma.vaddr != NULL)
 		iwm_free_ict(sc);
