@@ -427,8 +427,6 @@ int	iwm_preinit(struct iwm_softc *);
 void	iwm_attach_hook(iwm_hookarg_t);
 int	iwm_attach(device_t);
 void	iwm_init_task(void *);
-int	iwm_activate(struct device *, int);
-void	iwm_wakeup(struct iwm_softc *);
 
 void	iwm_radiotap_attach(struct iwm_softc *);
 
@@ -6298,7 +6296,7 @@ iwm_intr(void *arg)
 			    i, ring->qid, ring->cur, ring->queued));
 		}
 		DPRINTF(("  rx ring: cur=%d\n", sc->rxq.cur));
-		DPRINTF(("  802.11 state %d\n", sc->sc_ic.ic_state));
+//		DPRINTF(("  802.11 state %d\n", sc->sc_ic.ic_state));
 #endif
 
 		printf("%s: fatal firmware error\n", DEVNAME(sc));
@@ -6757,15 +6755,14 @@ iwm_init_task(void *arg1)
 static int
 iwm_resume(device_t dev)
 {
-#ifdef notyet
-	pcireg_t reg;
+	uint16_t reg;
 
 	/* Clear device-specific "PCI retry timeout" register (41h). */
-	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
-	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
+	reg = pci_read_config(dev, 0x40, sizeof(reg));
+	pci_write_config(dev, 0x40, reg & ~0xff00, sizeof(reg));
 
-	iwm_init_task(sc);
-#endif
+	iwm_init_task(device_get_softc(dev));
+
 	return 0;
 }
 
