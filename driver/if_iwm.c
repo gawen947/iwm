@@ -3162,7 +3162,6 @@ void
 iwm_mvm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	struct iwm_node *in)
 {
-//	struct ieee80211com *ic = sc->sc_ic;
 	struct ifnet *ifp = sc->sc_ifp;
 	struct iwm_mvm_tx_resp *tx_resp = (void *)pkt->data;
 	int status = le16toh(tx_resp->status.status) & IWM_TX_STATUS_MSK;
@@ -3189,7 +3188,6 @@ void
 iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 	struct iwm_rx_packet *pkt, struct iwm_rx_data *data)
 {
-//	struct ieee80211com *ic = sc->sc_ic;
 	struct ifnet *ifp = sc->sc_ifp;
 	struct iwm_cmd_header *cmd_hdr = &pkt->hdr;
 	int idx = cmd_hdr->idx;
@@ -3203,7 +3201,6 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 		    DEVNAME(sc)));
 		return;
 	}
-
 	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	sc->sc_tx_timer = 0;
@@ -6016,7 +6013,7 @@ iwm_nic_error(struct iwm_softc *sc)
 
 #define SYNC_RESP_STRUCT(_var_, _pkt_)					\
 do {									\
-	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);	\
+	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_POSTREAD);	\
 	_var_ = (void *)((_pkt_)+1);					\
 } while (/*CONSTCOND*/0)
 
@@ -6037,12 +6034,12 @@ iwm_notif_intr(struct iwm_softc *sc)
 {
 	uint16_t hw;
 
-	printf("tag %p\n", sc->rxq.stat_dma.tag);
 	bus_dmamap_sync(sc->rxq.stat_dma.tag, sc->rxq.stat_dma.map,
 	    BUS_DMASYNC_POSTREAD);
 
 	hw = le16toh(sc->rxq.stat->closed_rb_num) & 0xfff;
 	while (sc->rxq.cur != hw) {
+		struct iwm_rx_ring *ring = &sc->rxq;
 		struct iwm_rx_data *data = &sc->rxq.data[sc->rxq.cur];
 		struct iwm_rx_packet *pkt;
 		struct iwm_cmd_response *cresp;
@@ -6643,7 +6640,7 @@ iwm_attach(device_t dev)
 	ifp->if_snd.ifq_drv_maxlen = ifqmaxlen;
 	IFQ_SET_READY(&ifp->if_snd);
 
-	ic = ifp->if_l2com;
+	sc->sc_ic = ic = ifp->if_l2com;
 	ic->ic_phytype = IEEE80211_T_OFDM;	/* not only, but not used */
 	ic->ic_opmode = IEEE80211_M_STA;	/* default to BSS mode */
 
