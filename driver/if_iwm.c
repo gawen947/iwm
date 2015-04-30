@@ -228,6 +228,7 @@ void	iwm_set_bits_mask_prph(struct iwm_softc *, uint32_t, uint32_t,
 		    uint32_t);
 void	iwm_set_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
 void	iwm_clear_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
+static void	iwm_dma_map_addr(void *, bus_dma_segment_t *, int, int);
 int	iwm_dma_contig_alloc(bus_dma_tag_t, struct iwm_dma_info *,
 				bus_size_t, bus_size_t);
 void	iwm_dma_contig_free(struct iwm_dma_info *);
@@ -861,67 +862,69 @@ iwm_clear_bits_prph(struct iwm_softc *sc, uint32_t reg, uint32_t bits)
  * DMA resource routines
  */
 
+static void
+iwm_dma_map_addr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
+{
+        if (error != 0)
+                return;
+//        KASSERT(nsegs == 1, ("too many DMA segments, %d should be 1", nsegs));
+	KASSERT(nsegs == 1);
+        *(bus_addr_t *)arg = segs[0].ds_addr;
+}
+
 int
 iwm_dma_contig_alloc(bus_dma_tag_t tag, struct iwm_dma_info *dma,
     bus_size_t size, bus_size_t alignment)
 {
-#ifdef notyet
 	int nsegs, error;
 	caddr_t va;
 
-	dma->tag = tag;
+	dma->tag = NULL;
 	dma->size = size;
 
-	error = bus_dmamap_create(tag, size, 1, size, 0, BUS_DMA_NOWAIT,
-	    &dma->map);
-	if (error != 0)
-		goto fail;
+	error = bus_dma_tag_create(tag, alignment,
+            0, BUS_SPACE_MAXADDR_32BIT, BUS_SPACE_MAXADDR, NULL, NULL, size,
+            1, size, BUS_DMA_NOWAIT, NULL, NULL, &dma->tag);
+        if (error != 0)
+                goto fail;
 
-	error = bus_dmamem_alloc(tag, size, alignment, 0, &dma->seg, 1, &nsegs,
-	    BUS_DMA_NOWAIT);
-	if (error != 0)
-		goto fail;
+        error = bus_dmamem_alloc(dma->tag, (void **)&dma->vaddr,
+            BUS_DMA_NOWAIT | BUS_DMA_ZERO | BUS_DMA_COHERENT, &dma->map);
+        if (error != 0)
+                goto fail;
 
-	error = bus_dmamem_map(tag, &dma->seg, 1, size, &va,
-	    BUS_DMA_NOWAIT);
-	if (error != 0)
-		goto fail;
-	dma->vaddr = va;
+        error = bus_dmamap_load(dma->tag, dma->map, dma->vaddr, size,
+            iwm_dma_map_addr, &dma->paddr, BUS_DMA_NOWAIT);
+        if (error != 0)
+                goto fail;
 
-	error = bus_dmamap_load(tag, dma->map, dma->vaddr, size, NULL,
-	    BUS_DMA_NOWAIT);
-	if (error != 0)
-		goto fail;
-
-	memset(dma->vaddr, 0, size);
 	bus_dmamap_sync(tag, dma->map, BUS_DMASYNC_PREWRITE);
-	dma->paddr = dma->map->dm_segs[0].ds_addr;
 
 	return 0;
 
 fail:	iwm_dma_contig_free(dma);
 	return error;
-#endif
-	return 0;
 }
 
 void
 iwm_dma_contig_free(struct iwm_dma_info *dma)
 {
-#ifdef notyet
 	if (dma->map != NULL) {
 		if (dma->vaddr != NULL) {
 			bus_dmamap_sync(dma->tag, dma->map,
 			    BUS_DMASYNC_POSTREAD | BUS_DMASYNC_POSTWRITE);
 			bus_dmamap_unload(dma->tag, dma->map);
-			bus_dmamem_unmap(dma->tag, dma->vaddr, dma->size);
-			bus_dmamem_free(dma->tag, &dma->seg, 1);
+			bus_dmamem_free(dma->tag, dma->vaddr, dma->map);
 			dma->vaddr = NULL;
 		}
 		bus_dmamap_destroy(dma->tag, dma->map);
 		dma->map = NULL;
 	}
-#endif
+	if (dma->tag != NULL) {
+		bus_dma_tag_destroy(dma->tag);
+		dma->tag = NULL;
+	}
+
 }
 
 /* fwmem is used to load firmware onto the card */
@@ -6527,7 +6530,7 @@ iwm_attach(device_t dev)
 	    (rid != 0 ? 0 : RF_SHAREABLE));
 	if (sc->sc_irq == NULL) {
 		device_printf(dev, "can't map interrupt\n");
-		return ENOXIO;
+		return ENXIO;
 	}
 	error = bus_setup_intr(dev, sc->sc_irq, INTR_TYPE_NET | INTR_MPSAFE,
 	    NULL, iwm_intr, sc, &sc->sc_ih);
@@ -6535,7 +6538,7 @@ iwm_attach(device_t dev)
 		printf("%s: can't establish interrupt", DEVNAME(sc));
 		return ENXIO;
 	}
-
+	sc->sc_dmat = bus_get_dma_tag(sc->sc_dev);
 	sc->sc_wantresp = -1;
 
 	switch (pci_get_device(dev)) {
@@ -6563,7 +6566,6 @@ iwm_attach(device_t dev)
 	/*
 	 * We now start fiddling with the hardware
 	 */
-
 	sc->sc_hw_rev = IWM_READ(sc, IWM_CSR_HW_REV);
 	if (iwm_prepare_card_hw(sc) != 0) {
 		printf("%s: could not initialize hardware\n", DEVNAME(sc));
