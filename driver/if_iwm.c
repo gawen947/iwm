@@ -6496,20 +6496,6 @@ iwm_attach(device_t dev)
 	task_set(&sc->sc_eswk, iwm_endscan_cb, sc);
 #endif
 
-#ifdef notneeded
-	/*
-	 * Get the offset of the PCI Express Capability Structure in PCI
-	 * Configuration Space.
-	 */
-	error = pci_get_capability(sc->sc_pct, sc->sc_pcitag,
-	    PCI_CAP_PCIEXPRESS, &sc->sc_cap_off, NULL);
-	if (error == 0) {
-		printf("%s: PCIe capability structure not found!\n",
-		    DEVNAME(sc));
-		return ENXIO;
-	}
-#endif
-
 	/* Clear device-specific "PCI retry timeout" register (41h). */
 	reg = pci_read_config(dev, 0x40, sizeof(reg));
 	pci_write_config(dev, 0x40, reg & ~0xff00, sizeof(reg));

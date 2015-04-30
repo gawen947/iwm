@@ -439,8 +439,6 @@ struct iwm_softc {
 	 */
 	int sc_generation;
 
-	int sc_cap_off; /* PCIe caps */
-
 	const char *sc_fwname;
 	bus_size_t sc_fwdmasegsz;
 	struct iwm_fw_info sc_fw;
