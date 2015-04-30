@@ -6523,8 +6523,12 @@ iwm_attach(device_t dev)
 	count = 1;
 	if (pci_alloc_msi(dev, &count) == 0)
 		rid = 1;
-	sc->sc_irq = bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid,
-	    RF_ACTIVE);
+	sc->sc_irq = bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, RF_ACTIVE |
+	    (rid != 0 ? 0 : RF_SHAREABLE));
+	if (sc->sc_irq == NULL) {
+		device_printf(dev, "can't map interrupt\n");
+		return ENOXIO;
+	}
 	error = bus_setup_intr(dev, sc->sc_irq, INTR_TYPE_NET | INTR_MPSAFE,
 	    NULL, iwm_intr, sc, &sc->sc_ih);
 	if (sc->sc_ih == NULL) {
