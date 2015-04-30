@@ -896,7 +896,7 @@ iwm_dma_contig_alloc(bus_dma_tag_t tag, struct iwm_dma_info *dma,
         if (error != 0)
                 goto fail;
 
-	bus_dmamap_sync(tag, dma->map, BUS_DMASYNC_PREWRITE);
+	bus_dmamap_sync(dma->tag, dma->map, BUS_DMASYNC_PREWRITE);
 
 	return 0;
 
@@ -1029,20 +1029,6 @@ iwm_alloc_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 	 * Allocate and map RX buffers.
 	 */
 	for (i = 0; i < IWM_RX_RING_COUNT; i++) {
-		struct iwm_rx_data *data = &ring->data[i];
-
-		memset(data, 0, sizeof(*data));
-#ifdef notyet
-		error = bus_dmamap_create(sc->sc_dmat, IWM_RBUF_SIZE, 1,
-		    IWM_RBUF_SIZE, 0, BUS_DMA_NOWAIT | BUS_DMA_ALLOCNOW,
-		    &data->map);
-#endif
-		if (error != 0) {
-			printf("%s: could not create RX buf DMA map\n",
-			    DEVNAME(sc));
-			goto fail;
-		}
-
 		if ((error = iwm_rx_addbuf(sc, IWM_RBUF_SIZE, i)) != 0) {
 			goto fail;
 		}
@@ -1168,28 +1154,26 @@ fail:	iwm_free_tx_ring(sc, ring);
 void
 iwm_reset_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 {
-#ifdef notyet
 	int i;
 
 	for (i = 0; i < IWM_TX_RING_COUNT; i++) {
 		struct iwm_tx_data *data = &ring->data[i];
 
 		if (data->m != NULL) {
-			bus_dmamap_sync(sc->sc_dmat, data->map,
+			bus_dmamap_sync(ring->data_dmat, data->map,
 			    BUS_DMASYNC_POSTWRITE);
-			bus_dmamap_unload(sc->sc_dmat, data->map);
+			bus_dmamap_unload(ring->data_dmat, data->map);
 			m_freem(data->m);
 			data->m = NULL;
 		}
 	}
 	/* Clear TX descriptors. */
 	memset(ring->desc, 0, ring->desc_dma.size);
-	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
+	bus_dmamap_sync(ring->desc_dma.tag, ring->desc_dma.map,
 	    BUS_DMASYNC_PREWRITE);
 	sc->qfullmsk &= ~(1 << ring->qid);
 	ring->queued = 0;
 	ring->cur = 0;
-#endif
 }
 
 void
@@ -2681,7 +2665,7 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 
 	/* Copy firmware section into pre-allocated DMA-safe memory. */
 	memcpy(dma->vaddr, section, byte_cnt);
-	bus_dmamap_sync(sc->sc_dmat, dma->map, BUS_DMASYNC_PREWRITE);
+	bus_dmamap_sync(dma->tag, dma->map, BUS_DMASYNC_PREWRITE);
 
 	if (!iwm_nic_lock(sc))
 		return EBUSY;
@@ -2917,50 +2901,43 @@ iwm_rx_addbuf(struct iwm_softc *sc, int size, int idx)
 	struct iwm_rx_data *data = &ring->data[idx];
 	struct mbuf *m;
 	int error;
-	int fatal = 0;
-	bus_dma_segment_t segs[IWM_MAX_SCATTER];
-	int nsegs = 0;
+	bus_addr_t paddr;
 
-#ifdef notyet
-	if (size <= MCLBYTES) {
-		MCLGET(m, M_NOWAIT);
-	} else
-#endif
-		m = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, IWM_RBUF_SIZE);
-
+	m = m_getjcl(M_NOWAIT, MT_DATA, M_PKTHDR, IWM_RBUF_SIZE);
 	if (m == NULL)
 		return ENOBUFS;
 
-	if ((m->m_flags & M_EXT) == 0) {
-		m_freem(m);
-		return ENOBUFS;
-	}
-
-	if (data->m != NULL) {
-		bus_dmamap_unload(sc->sc_dmat, data->map);
-		fatal = 1;
-	}
+	if (data->m != NULL)
+		bus_dmamap_unload(ring->data_dmat, data->map);
 
 	m->m_len = m->m_pkthdr.len = m->m_ext.ext_size;
-	if ((error = bus_dmamap_load_mbuf_sg(sc->sc_dmat, data->map, m,
-	    segs, &nsegs, BUS_DMA_NOWAIT)) != 0) {
-		/* XXX */
-		if (fatal)
-			panic("iwm: could not load RX mbuf");
-		m_freem(m);
-		return error;
+	error = bus_dmamap_create(ring->data_dmat, 0, &data->map);
+	if (error != 0) {
+		device_printf(sc->sc_dev,
+		    "%s: could not create RX buf DMA map, error %d\n",
+		    __func__, error);
+		goto fail;
 	}
 	data->m = m;
-	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_PREREAD);
+	error = bus_dmamap_load(ring->data_dmat, data->map,
+	    mtod(data->m, void *), IWM_RBUF_SIZE, iwm_dma_map_addr,
+	    &paddr, BUS_DMA_NOWAIT);
+	if (error != 0 && error != EFBIG) {
+		device_printf(sc->sc_dev,
+		    "%s: can't not map mbuf, error %d\n", __func__,
+		    error);
+		goto fail;
+	}
+	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_PREREAD);
 
-#ifdef notyet
 	/* Update RX descriptor. */
-	ring->desc[idx] = htole32(data->map->dm_segs[0].ds_addr >> 8);
-	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
+	ring->desc[idx] = htole32(paddr >> 8);
+	bus_dmamap_sync(ring->desc_dma.tag, ring->desc_dma.map,
 	    BUS_DMASYNC_PREWRITE);
-#endif
 
 	return 0;
+fail:
+	return error;
 }
 
 /* iwlwifi: mvm/rx.c */
@@ -3033,7 +3010,7 @@ iwm_mvm_rx_rx_phy_cmd(struct iwm_softc *sc,
 	struct iwm_rx_phy_info *phy_info = (void *)pkt->data;
 
 	DPRINTFN(20, ("received PHY stats\n"));
-	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(sc->rxq.data_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	memcpy(&sc->sc_last_phy_info, phy_info, sizeof(sc->sc_last_phy_info));
 }
@@ -3081,7 +3058,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	uint32_t rx_pkt_status;
 	int rssi;
 
-	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(sc->rxq.data_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	phy_info = &sc->sc_last_phy_info;
 	rx_res = (struct iwm_rx_mpdu_res_start *)pkt->data;
@@ -3227,15 +3204,15 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 		return;
 	}
 
-	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);
+	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_POSTREAD);
 
 	sc->sc_tx_timer = 0;
 
 	iwm_mvm_rx_tx_cmd_single(sc, pkt, in);
 
 	/* Unmap and free mbuf. */
-	bus_dmamap_sync(sc->sc_dmat, txd->map, BUS_DMASYNC_POSTWRITE);
-	bus_dmamap_unload(sc->sc_dmat, txd->map);
+	bus_dmamap_sync(ring->data_dmat, txd->map, BUS_DMASYNC_POSTWRITE);
+	bus_dmamap_unload(ring->data_dmat, txd->map);
 	m_freem(txd->m);
 
 	DPRINTFN(8, ("free txd %p, in %p\n", txd, txd->in));
@@ -3501,16 +3478,14 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 			goto out;
 		}
 		cmd = mtod(m, struct iwm_device_cmd *);
-#ifdef notyet
-		error = bus_dmamap_load(sc->sc_dmat, data->map, cmd,
-		    hcmd->len[0], NULL, BUS_DMA_NOWAIT);
-#endif
+		error = bus_dmamap_load(ring->data_dmat,
+		    data->map, cmd, hcmd->len[0],
+		    iwm_dma_map_addr, &paddr, BUS_DMA_NOWAIT);
 		if (error != 0) {
 			m_freem(m);
 			goto out;
 		}
 		data->m = m;
-//		paddr = data->map->dm_segs[0].ds_addr;
 	} else {
 		cmd = &ring->cmd[ring->cur];
 		paddr = data->cmd_paddr;
@@ -3541,12 +3516,12 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	    async ? " (async)" : ""));
 
 	if (hcmd->len[0] > sizeof(cmd->data)) {
-		bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_PREWRITE);
+		bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_PREWRITE);
 	} else {
-		bus_dmamap_sync(sc->sc_dmat, ring->cmd_dma.map,
+		bus_dmamap_sync(ring->cmd_dma.tag, ring->cmd_dma.map,
 		    BUS_DMASYNC_PREWRITE);
 	}
-	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
+	bus_dmamap_sync(ring->desc_dma.tag, ring->desc_dma.map,
 	    BUS_DMASYNC_PREWRITE);
 
 	IWM_SETBITS(sc, IWM_CSR_GP_CNTRL,
@@ -3692,9 +3667,9 @@ iwm_cmd_done(struct iwm_softc *sc, struct iwm_rx_packet *pkt)
 
 	/* If the command was mapped in an mbuf, free it. */
 	if (data->m != NULL) {
-		bus_dmamap_sync(sc->sc_dmat, data->map,
+		bus_dmamap_sync(ring->data_dmat, data->map,
 		    BUS_DMASYNC_POSTWRITE);
-		bus_dmamap_unload(sc->sc_dmat, data->map);
+		bus_dmamap_unload(ring->data_dmat, data->map);
 		m_freem(data->m);
 		data->m = NULL;
 	}
@@ -3722,13 +3697,13 @@ iwm_update_sched(struct iwm_softc *sc, int qid, int idx, uint8_t sta_id,
 
 	/* Update TX scheduler. */
 	scd_bc_tbl[qid].tfd_offset[idx] = w_val;
-	bus_dmamap_sync(sc->sc_dmat, sc->sched_dma.map,
+	bus_dmamap_sync(sc->sched_dma.tag, sc->sched_dma.map,
 	    BUS_DMASYNC_PREWRITE);
 
 	/* I really wonder what this is ?!? */
 	if (idx < IWM_TFD_QUEUE_SIZE_BC_DUP) {
 		scd_bc_tbl[qid].tfd_offset[IWM_TFD_QUEUE_SIZE_MAX + idx] = w_val;
-		bus_dmamap_sync(sc->sc_dmat, sc->sched_dma.map,
+		bus_dmamap_sync(sc->sched_dma.tag, sc->sched_dma.map,
 		    BUS_DMASYNC_PREWRITE);
 	}
 }
@@ -3928,7 +3903,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	/* Trim 802.11 header. */
 	m_adj(m, hdrlen);
 #ifdef notyet
-	error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
+	error = bus_dmamap_load_mbuf(ring->data_dmat, data->map, m,
 	    BUS_DMA_NOWAIT);
 #endif
 	if (error != 0) {
@@ -3999,11 +3974,11 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	}
 #endif
 
-	bus_dmamap_sync(sc->sc_dmat, data->map,
+	bus_dmamap_sync(ring->data_dmat, data->map,
 	    BUS_DMASYNC_PREWRITE);
-	bus_dmamap_sync(sc->sc_dmat, ring->cmd_dma.map,
+	bus_dmamap_sync(ring->cmd_dma.tag, ring->cmd_dma.map,
 	    BUS_DMASYNC_PREWRITE);
-	bus_dmamap_sync(sc->sc_dmat, ring->desc_dma.map,
+	bus_dmamap_sync(ring->desc_dma.tag, ring->desc_dma.map,
 	    BUS_DMASYNC_PREWRITE);
 
 #if 0
@@ -6062,7 +6037,8 @@ iwm_notif_intr(struct iwm_softc *sc)
 {
 	uint16_t hw;
 
-	bus_dmamap_sync(sc->sc_dmat, sc->rxq.stat_dma.map,
+	printf("tag %p\n", sc->rxq.stat_dma.tag);
+	bus_dmamap_sync(sc->rxq.stat_dma.tag, sc->rxq.stat_dma.map,
 	    BUS_DMASYNC_POSTREAD);
 
 	hw = le16toh(sc->rxq.stat->closed_rb_num) & 0xfff;
@@ -6072,7 +6048,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 		struct iwm_cmd_response *cresp;
 		int qid, idx;
 
-		bus_dmamap_sync(sc->sc_dmat, data->map,
+		bus_dmamap_sync(sc->rxq.data_dmat, data->map,
 		    BUS_DMASYNC_POSTREAD);
 		pkt = mtod(data->m, struct iwm_rx_packet *);
 
@@ -6142,7 +6118,7 @@ iwm_notif_intr(struct iwm_softc *sc)
 
 		case IWM_NVM_ACCESS_CMD:
 			if (sc->sc_wantresp == ((qid << 16) | idx)) {
-				bus_dmamap_sync(sc->sc_dmat, data->map,
+				bus_dmamap_sync(sc->rxq.data_dmat, data->map,
 				    BUS_DMASYNC_POSTREAD);
 				memcpy(sc->sc_cmd_resp,
 				    pkt, sizeof(sc->sc_cmd_resp));
