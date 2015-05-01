@@ -1195,7 +1195,7 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 			data->m = NULL;
 		}
 		if (data->map != NULL) {
-			bus_dmamap_destroy(sc->sc_dmat, data->map);
+			bus_dmamap_destroy(ring->data_dmat, data->map);
 			data->map = NULL;
 		}
 	}
@@ -3929,7 +3929,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		m_freem(m);
 		m = m1;
 #ifdef notyet
-		error = bus_dmamap_load_mbuf(sc->sc_dmat, data->map, m,
+		error = bus_dmamap_load_mbuf(ring->data_dmat, data->map, m,
 		    BUS_DMA_NOWAIT);
 		if (error != 0) {
 			printf("%s: can't map mbuf (error %d)\n", DEVNAME(sc),
@@ -6013,13 +6013,13 @@ iwm_nic_error(struct iwm_softc *sc)
 
 #define SYNC_RESP_STRUCT(_var_, _pkt_)					\
 do {									\
-	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_POSTREAD);	\
+	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_POSTREAD);\
 	_var_ = (void *)((_pkt_)+1);					\
 } while (/*CONSTCOND*/0)
 
 #define SYNC_RESP_PTR(_ptr_, _len_, _pkt_)				\
 do {									\
-	bus_dmamap_sync(sc->sc_dmat, data->map, BUS_DMASYNC_POSTREAD);	\
+	bus_dmamap_sync(ring->data_dmat, data->map, BUS_DMASYNC_POSTREAD);\
 	_ptr_ = (void *)((_pkt_)+1);					\
 } while (/*CONSTCOND*/0)
 
