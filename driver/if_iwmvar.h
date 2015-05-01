@@ -367,9 +367,10 @@ struct iwm_bf_data {
 };
 
 struct iwm_vap {
-	struct ieee80211vap iwm_vap;
+	struct ieee80211vap iv_vap;
+        uint8_t macaddr[IEEE80211_ADDR_LEN];
 
-	int (*iwm_newstate)(struct ieee80211vap *, enum ieee80211_state, int);
+	int (*iv_newstate)(struct ieee80211vap *, enum ieee80211_state, int);
 };
 
 #define IWM_VAP(_vap)   ((struct iwm_vap *)(_vap))
@@ -384,7 +385,6 @@ struct iwm_softc {
 	uint8_t sc_bssid[IEEE80211_ADDR_LEN];
 
 #ifdef notyet
-	struct ieee80211_amrr sc_amrr;
 	struct timeout sc_calib_to;
 #endif
 

@@ -352,9 +352,12 @@ int	iwm_mvm_send_cmd_pdu_status(struct iwm_softc *, uint8_t,
 void	iwm_free_resp(struct iwm_softc *, struct iwm_host_cmd *);
 void	iwm_cmd_done(struct iwm_softc *, struct iwm_rx_packet *);
 void	iwm_update_sched(struct iwm_softc *, int, int, uint8_t, uint16_t);
-const struct iwm_rate *iwm_tx_fill_cmd(struct iwm_softc *, struct iwm_node *,
+const struct iwm_rate *
+	iwm_tx_fill_cmd(struct iwm_softc *, struct iwm_node *,
 			struct ieee80211_frame *, struct iwm_tx_cmd *);
 int	iwm_tx(struct iwm_softc *, struct mbuf *, struct ieee80211_node *, int);
+static int	iwm_raw_xmit(struct ieee80211_node *, struct mbuf *,
+			     const struct ieee80211_bpf_params *);
 int	iwm_mvm_beacon_filter_send_cmd(struct iwm_softc *,
 					struct iwm_beacon_filter_cmd *);
 void	iwm_mvm_beacon_filter_set_cqm_params(struct iwm_softc *,
@@ -404,7 +407,10 @@ int	iwm_mvm_update_quotas(struct iwm_softc *, struct iwm_node *);
 int	iwm_auth(struct iwm_softc *);
 int	iwm_assoc(struct iwm_softc *);
 int	iwm_release(struct iwm_softc *, struct iwm_node *);
-struct ieee80211_node *iwm_node_alloc(struct ieee80211com *);
+struct ieee80211_node *
+	iwm_node_alloc(struct ieee80211vap *,
+	    const uint8_t[IEEE80211_ADDR_LEN]);
+
 void	iwm_calib_timeout(void *);
 void	iwm_setrates(struct iwm_node *);
 int	iwm_media_change(struct ifnet *);
@@ -428,8 +434,14 @@ int	iwm_preinit(struct iwm_softc *);
 void	iwm_attach_hook(iwm_hookarg_t);
 int	iwm_attach(device_t);
 void	iwm_init_task(void *);
-
 void	iwm_radiotap_attach(struct iwm_softc *);
+static struct ieee80211vap *
+	iwm_vap_create(struct ieee80211com *,
+	    const char [IFNAMSIZ], int, enum ieee80211_opmode, int,
+	    const uint8_t [IEEE80211_ADDR_LEN],
+	    const uint8_t [IEEE80211_ADDR_LEN]);
+static void	iwm_vap_delete(struct ieee80211vap *);
+static int	iwm_detach(device_t);
 
 /*
  * Firmware parser.
@@ -3994,6 +4006,13 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	return 0;
 }
 
+static int
+iwm_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
+    const struct ieee80211_bpf_params *params)
+{
+	return 0;
+}
+
 #if 0
 /* not necessary? */
 int
@@ -5216,9 +5235,10 @@ iwm_release(struct iwm_softc *sc, struct iwm_node *in)
 }
 
 struct ieee80211_node *
-iwm_node_alloc(struct ieee80211com *ic)
+iwm_node_alloc(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN])
 {
-	return malloc(sizeof (struct iwm_node), M_DEVBUF, M_NOWAIT | M_ZERO);
+	return malloc(sizeof (struct iwm_node), M_80211_NODE,
+	    M_NOWAIT | M_ZERO);
 }
 
 void
@@ -6415,7 +6435,6 @@ int
 iwm_preinit(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = sc->sc_ic;
-//	struct ifnet *ifp = sc->sc_ifp;
 	int error;
 	static int attached;
 
@@ -6437,14 +6456,14 @@ iwm_preinit(struct iwm_softc *sc)
 	if (error)
 		return error;
 
-	/* Print version info and MAC address on first successful fw load. */
+	/* Print version info on first successful fw load. */
 	attached = 1;
-	printf("%s: hw rev: 0x%x, fw ver %d.%d (API ver %d), address %s\n",
-	    DEVNAME(sc), sc->sc_hw_rev & IWM_CSR_HW_REV_TYPE_MSK,
+	device_printf(sc->sc_dev,
+	    "revision: 0x%x, firmware %d.%d (API ver. %d)\n",
+	    sc->sc_hw_rev & IWM_CSR_HW_REV_TYPE_MSK,
 	    IWM_UCODE_MAJOR(sc->sc_fwver),
 	    IWM_UCODE_MINOR(sc->sc_fwver),
-	    IWM_UCODE_API(sc->sc_fwver),
-	    ether_sprintf(sc->sc_nvm.hw_addr));
+	    IWM_UCODE_API(sc->sc_fwver));
 
 	/* not all hardware can do 5GHz band */
 	if (!sc->sc_nvm.sku_cap_band_52GHz_enable)
@@ -6452,17 +6471,15 @@ iwm_preinit(struct iwm_softc *sc)
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
 
 	ieee80211_ifattach(ic, sc->sc_bssid);
-#ifdef notyet
-	ic->ic_raw_xmit;
-	ic->ic_scan_start;
-	ic->ic_scan_end;
-	ic->ic_set_channel;
-
-	ic->ic_vap_create;
-	ic->ic_vap_delete;
-	ic->ic_update_mcast;
-
+	ic->ic_vap_create = iwm_vap_create;
+	ic->ic_vap_delete = iwm_vap_delete;
+	ic->ic_raw_xmit = iwm_raw_xmit;
 	ic->ic_node_alloc = iwm_node_alloc;
+#ifdef notyet
+	ic->ic_scan_start = iwm_scan_start;
+	ic->ic_scan_end = iwm_scan_end;
+	ic->ic_set_channel = iwm_set_channel;
+	ic->ic_update_mcast = iwm_update_mcast;
 #endif
 	iwm_radiotap_attach(sc);
 	if (bootverbose)
@@ -6721,6 +6738,49 @@ iwm_radiotap_attach(struct iwm_softc *sc)
 #endif
 }
 
+static struct ieee80211vap *
+iwm_vap_create(struct ieee80211com *ic, const char name[IFNAMSIZ], int unit,
+    enum ieee80211_opmode opmode, int flags,
+    const uint8_t bssid[IEEE80211_ADDR_LEN],
+    const uint8_t mac[IEEE80211_ADDR_LEN])
+{
+	struct iwm_vap *ivp;
+	struct ieee80211vap *vap;
+	uint8_t mac1[IEEE80211_ADDR_LEN];
+
+	if (!TAILQ_EMPTY(&ic->ic_vaps))         /* only one at a time */
+		return NULL;
+	IEEE80211_ADDR_COPY(mac1, mac);
+	ivp = (struct iwm_vap *) malloc(sizeof(struct iwm_vap),
+	    M_80211_VAP, M_NOWAIT | M_ZERO);
+	if (ivp == NULL)
+		return NULL;
+	vap = &ivp->iv_vap;
+	ieee80211_vap_setup(ic, vap, name, unit, opmode, flags, bssid, mac1);
+	IEEE80211_ADDR_COPY(ivp->macaddr, mac1);
+	vap->iv_bmissthreshold = 10;            /* override default */
+	/* Override with driver methods. */
+	ivp->iv_newstate = vap->iv_newstate;
+	vap->iv_newstate = iwm_newstate;
+
+	ieee80211_ratectl_init(vap);
+	/* Complete setup. */
+	ieee80211_vap_attach(vap, iwm_media_change, ieee80211_media_status);
+	ic->ic_opmode = opmode;
+
+	return vap;
+}
+
+static void
+iwm_vap_delete(struct ieee80211vap *vap)
+{
+	struct iwm_vap *ivp = IWM_VAP(vap);
+
+	ieee80211_ratectl_deinit(vap);
+	ieee80211_vap_detach(vap);
+	free(ivp, M_80211_VAP);
+}
+
 void
 iwm_init_task(void *arg1)
 {
@@ -6766,11 +6826,37 @@ iwm_suspend(device_t dev)
 	return (0);
 }
 
+static int
+iwm_detach(device_t dev)
+{
+	struct iwm_softc *sc = device_get_softc(dev);
+	struct ifnet *ifp = sc->sc_ifp;
+	struct ieee80211com *ic;
+
+	if (ifp) {
+		ic = ifp->if_l2com;
+		iwm_stop_device(sc);
+		ieee80211_ifdetach(ic);
+		if_free(ifp);
+	}
+	if (sc->sc_irq != NULL) {
+		bus_teardown_intr(dev, sc->sc_irq, sc->sc_ih);
+		bus_release_resource(dev, SYS_RES_IRQ,
+		    rman_get_rid(sc->sc_irq), sc->sc_irq);
+		pci_release_msi(dev);
+        }
+	if (sc->sc_mem != NULL)
+		bus_release_resource(dev, SYS_RES_MEMORY,
+		    rman_get_rid(sc->sc_mem), sc->sc_mem);
+
+	return (0);
+}
+
 static device_method_t iwm_pci_methods[] = {
         /* Device interface */
         DEVMETHOD(device_probe,         iwm_probe),
         DEVMETHOD(device_attach,        iwm_attach),
-//        DEVMETHOD(device_detach,        iwm_detach),
+        DEVMETHOD(device_detach,        iwm_detach),
 //        DEVMETHOD(device_shutdown,      iwm_shutdown),
         DEVMETHOD(device_suspend,       iwm_suspend),
         DEVMETHOD(device_resume,        iwm_resume),
