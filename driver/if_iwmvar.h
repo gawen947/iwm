@@ -159,13 +159,13 @@ enum iwm_ucode_type {
 };
 
 struct iwm_fw_info {
-	void *fw_rawdata;
+	const void *fw_rawdata;
 	size_t fw_rawsize;
 	int fw_status;
 
 	struct iwm_fw_sects {
 		struct iwm_fw_onesect {
-			void *fws_data;
+			const void *fws_data;
 			uint32_t fws_len;
 			uint32_t fws_devoff;
 		} fw_sect[IWM_UCODE_SECT_MAX];

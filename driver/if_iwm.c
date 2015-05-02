@@ -210,9 +210,9 @@ struct iwm_newstate_state {
 	int ns_generation;
 };
 
-int	iwm_store_cscheme(struct iwm_softc *, uint8_t *, size_t);
+int	iwm_store_cscheme(struct iwm_softc *, const uint8_t *, size_t);
 int	iwm_firmware_store_section(struct iwm_softc *, enum iwm_ucode_type,
-					uint8_t *, size_t);
+				   const uint8_t *, size_t);
 int	iwm_set_default_calib(struct iwm_softc *, const void *);
 void	iwm_fw_info_free(struct iwm_fw_info *);
 int	iwm_read_firmware(struct iwm_softc *, enum iwm_ucode_type);
@@ -448,9 +448,9 @@ static int	iwm_detach(device_t);
  */
 
 int
-iwm_store_cscheme(struct iwm_softc *sc, uint8_t *data, size_t dlen)
+iwm_store_cscheme(struct iwm_softc *sc, const uint8_t *data, size_t dlen)
 {
-	struct iwm_fw_cscheme_list *l = (void *)data;
+	const struct iwm_fw_cscheme_list *l = (const void *)data;
 
 	if (dlen < sizeof(*l) ||
 	    dlen < sizeof(l->size) + l->size * sizeof(*l->cs))
@@ -463,7 +463,7 @@ iwm_store_cscheme(struct iwm_softc *sc, uint8_t *data, size_t dlen)
 
 int
 iwm_firmware_store_section(struct iwm_softc *sc,
-	enum iwm_ucode_type type, uint8_t *data, size_t dlen)
+    enum iwm_ucode_type type, const uint8_t *data, size_t dlen)
 {
 	struct iwm_fw_sects *fws;
 	struct iwm_fw_onesect *fwone;
@@ -532,11 +532,11 @@ int
 iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 {
 	struct iwm_fw_info *fw = &sc->sc_fw;
-	struct iwm_tlv_ucode_header *uhdr;
+	const struct iwm_tlv_ucode_header *uhdr;
 	struct iwm_ucode_tlv tlv;
 	enum iwm_ucode_tlv_type tlv_type;
 	const struct firmware *fwp;
-	uint8_t *data;
+	const uint8_t *data;
 	int error = 0;
 	size_t len;
 
@@ -561,14 +561,14 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 		    DEVNAME(sc), sc->sc_fwname, error);
 		goto out;
 	}
-	fw->fw_rawdata = __DECONST(void *, fwp->data);
+	fw->fw_rawdata = fwp->data;
 	fw->fw_rawsize = fwp->datasize;
 
 	/*
 	 * Parse firmware contents
 	 */
 
-	uhdr = (void *)fw->fw_rawdata;
+	uhdr = (const void *)fw->fw_rawdata;
 	if (*(const uint32_t *)fw->fw_rawdata != 0
 	    || le32toh(uhdr->magic) != IWM_TLV_UCODE_MAGIC) {
 		printf("%s: invalid firmware %s\n",
@@ -583,7 +583,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 
 	while (len >= sizeof(tlv)) {
 		size_t tlv_len;
-		void *tlv_data;
+		const void *tlv_data;
 
 		memcpy(&tlv, data, sizeof(tlv));
 		tlv_len = le32toh(tlv.length);
@@ -607,7 +607,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				goto parse_out;
 			}
 			sc->sc_capa_max_probe_len
-			    = le32toh(*(uint32_t *)tlv_data);
+			    = le32toh(*(const uint32_t *)tlv_data);
 			/* limit it to something sensible */
 			if (sc->sc_capa_max_probe_len > (1<<16)) {
 				DPRINTF(("%s: IWM_UCODE_TLV_PROBE_MAX_LEN "
@@ -639,7 +639,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 			 *  2) TLV_FLAGS contains TLV_FLAGS_PAN
 			 * ==> this resets TLV_PAN to itself... hnnnk
 			 */
-			sc->sc_capaflags = le32toh(*(uint32_t *)tlv_data);
+			sc->sc_capaflags = le32toh(*(const uint32_t *)tlv_data);
 			break;
 		case IWM_UCODE_TLV_CSCHEME:
 			if ((error = iwm_store_cscheme(sc,
@@ -651,7 +651,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				error = EINVAL;
 				goto parse_out;
 			}
-			if (le32toh(*(uint32_t*)tlv_data) != 1) {
+			if (le32toh(*(const uint32_t*)tlv_data) != 1) {
 				DPRINTF(("%s: driver supports "
 				    "only TLV_NUM_OF_CPU == 1", DEVNAME(sc)));
 				error = EINVAL;
@@ -686,7 +686,8 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				error = EINVAL;
 				goto parse_out;
 			}
-			sc->sc_fw_phy_config = le32toh(*(uint32_t *)tlv_data);
+			sc->sc_fw_phy_config =
+			    le32toh(*(const uint32_t *)tlv_data);
 			break;
 
 		case IWM_UCODE_TLV_API_CHANGES_SET:
@@ -2717,7 +2718,7 @@ iwm_load_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 {
 	struct iwm_fw_sects *fws;
 	int error, i, w;
-	void *data;
+	const void *data;
 	uint32_t dlen;
 	uint32_t offset;
 
