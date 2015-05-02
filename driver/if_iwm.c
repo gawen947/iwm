@@ -6687,18 +6687,16 @@ fail1:	iwm_free_fwmem(sc);
 void
 iwm_radiotap_attach(struct iwm_softc *sc)
 {
-#ifdef notyet
-	bpfattach(&sc->sc_drvbpf, &sc->sc_ic.ic_if, DLT_IEEE802_11_RADIO,
-	    sizeof (struct ieee80211_frame) + IEEE80211_RADIOTAP_HDRLEN);
+	struct ifnet *ifp = sc->sc_ifp;
+        struct ieee80211com *ic = ifp->if_l2com;
 
-	sc->sc_rxtap_len = sizeof sc->sc_rxtapu;
-	sc->sc_rxtap.wr_ihdr.it_len = htole16(sc->sc_rxtap_len);
-	sc->sc_rxtap.wr_ihdr.it_present = htole32(IWM_RX_RADIOTAP_PRESENT);
-
-	sc->sc_txtap_len = sizeof sc->sc_txtapu;
-	sc->sc_txtap.wt_ihdr.it_len = htole16(sc->sc_txtap_len);
-	sc->sc_txtap.wt_ihdr.it_present = htole32(IWM_TX_RADIOTAP_PRESENT);
-#endif
+	DPRINTFN(10, ("->%s begin\n", __func__));
+        ieee80211_radiotap_attach(ic,
+            &sc->sc_txtap.wt_ihdr, sizeof(sc->sc_txtap),
+                IWM_TX_RADIOTAP_PRESENT,
+            &sc->sc_rxtap.wr_ihdr, sizeof(sc->sc_rxtap),
+                IWM_RX_RADIOTAP_PRESENT);
+        DPRINTFN(10, ("->%s end\n", __func__));
 }
 
 static struct ieee80211vap *
