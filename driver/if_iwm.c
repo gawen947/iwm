@@ -369,7 +369,7 @@ void	iwm_mvm_power_build_cmd(struct iwm_softc *, struct iwm_node *,
 int	iwm_mvm_power_mac_update_mode(struct iwm_softc *, struct iwm_node *);
 int	iwm_mvm_power_update_device(struct iwm_softc *);
 int	iwm_mvm_enable_beacon_filter(struct iwm_softc *, struct iwm_node *);
-int	iwm_mvm_disable_beacon_filter(struct iwm_softc *, struct iwm_node *);
+int	iwm_mvm_disable_beacon_filter(struct iwm_softc *);
 void	iwm_mvm_add_sta_cmd_v6_to_v5(struct iwm_mvm_add_sta_cmd_v6 *,
 					struct iwm_mvm_add_sta_cmd_v5 *);
 int	iwm_mvm_send_add_sta_cmd_status(struct iwm_softc *,
@@ -4224,7 +4224,7 @@ iwm_mvm_enable_beacon_filter(struct iwm_softc *sc, struct iwm_node *in)
 }
 
 int
-iwm_mvm_disable_beacon_filter(struct iwm_softc *sc, struct iwm_node *in)
+iwm_mvm_disable_beacon_filter(struct iwm_softc *sc)
 {
 	struct iwm_beacon_filter_cmd cmd;
 	int ret;
@@ -5368,46 +5368,37 @@ iwm_media_change(struct ifnet *ifp)
 	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) ==
 	    (IFF_UP | IFF_DRV_RUNNING)) {
 		iwm_stop(ifp, 0);
-		iwm_init(ifp);
+		iwm_init(sc);
 	}
 	return error;
 }
 
-void
-iwm_newstate_cb(void *wk)
+
+int
+iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 {
-#ifdef notyet
-	struct iwm_newstate_state *iwmns = (void *)wk;
-	struct ieee80211com *ic = iwmns->ns_ic;
-	enum ieee80211_state nstate = iwmns->ns_nstate;
-	int generation = iwmns->ns_generation;
-	struct iwm_node *in;
-	int arg = iwmns->ns_arg;
-	struct ifnet *ifp = sc->sc_ifp;
+	struct iwm_vap *ivp = IWM_VAP(vap);
+	struct ieee80211com *ic = vap->iv_ic;
+	struct iwm_newstate_state *iwmns;
+	struct ifnet *ifp = ic->ic_ifp;
 	struct iwm_softc *sc = ifp->if_softc;
+
+#ifdef notyet
+	callout_stop(&sc->sc_calib_to);
+#endif
+	struct iwm_node *in;
 	int error;
 
-	free(iwmns, M_DEVBUF);
-
-	DPRINTF(("Prepare to switch state %d->%d\n", ic->ic_state, nstate));
-
-	if (sc->sc_generation != generation) {
-		DPRINTF(("newstate_cb: someone pulled the plug meanwhile\n"));
-		if (nstate == IEEE80211_S_INIT) {
-			DPRINTF(("newstate_cb: nstate == IEEE80211_S_INIT: calling sc_newstate()\n"));
-			sc->sc_newstate(ic, nstate, arg);
-		}
-		return;
-	}
-
-	DPRINTF(("switching state %d->%d\n", ic->ic_state, nstate));
+	DPRINTF(("switching state %d->%d\n", vap->iv_state, nstate));
 
 	/* disable beacon filtering if we're hopping out of RUN */
-	if (ic->ic_state == IEEE80211_S_RUN && nstate != ic->ic_state) {
-		iwm_mvm_disable_beacon_filter(sc, (void *)ic->ic_bss);
+	if (vap->iv_state == IEEE80211_S_RUN && nstate != vap->iv_state) {
+		iwm_mvm_disable_beacon_filter(sc);
 
+#ifdef notyet
 		if (((in = (void *)ic->ic_bss) != NULL))
 			in->in_assoc = 0;
+#endif
 		iwm_release(sc, NULL);
 
 		/*
@@ -5425,7 +5416,7 @@ iwm_newstate_cb(void *wk)
 		    nstate == IEEE80211_S_AUTH ||
 		    nstate == IEEE80211_S_ASSOC) {
 			DPRINTF(("Force transition to INIT; MGT=%d\n", arg));
-			sc->sc_newstate(ic, IEEE80211_S_INIT, arg);
+			vap->iv_newstate(vap, IEEE80211_S_INIT, arg);
 			DPRINTF(("Going INIT->SCAN\n"));
 			nstate = IEEE80211_S_SCAN;
 		}
@@ -5436,6 +5427,7 @@ iwm_newstate_cb(void *wk)
 		sc->sc_scanband = 0;
 		break;
 
+#ifdef notyet
 	case IEEE80211_S_SCAN:
 		if (sc->sc_scanband)
 			break;
@@ -5443,16 +5435,17 @@ iwm_newstate_cb(void *wk)
 		    ic->ic_des_esslen != 0,
 		    ic->ic_des_essid, ic->ic_des_esslen)) != 0) {
 			printf("%s: could not initiate scan\n", DEVNAME(sc));
-			return;
+			break;
 		}
 		ic->ic_state = nstate;
 		return;
+#endif
 
 	case IEEE80211_S_AUTH:
 		if ((error = iwm_auth(sc)) != 0) {
 			DPRINTF(("%s: could not move to auth state: %d\n",
 			    DEVNAME(sc), error));
-			return;
+			break;
 		}
 
 		break;
@@ -5461,11 +5454,13 @@ iwm_newstate_cb(void *wk)
 		if ((error = iwm_assoc(sc)) != 0) {
 			DPRINTF(("%s: failed to associate: %d\n", DEVNAME(sc),
 			    error));
-			return;
+			break;
 		}
 		break;
 
-	case IEEE80211_S_RUN: {
+	case IEEE80211_S_RUN:
+	{
+#ifdef notyet
 		struct iwm_host_cmd cmd = {
 			.id = IWM_LQ_CMD,
 			.len = { sizeof(in->in_lq), },
@@ -5483,47 +5478,17 @@ iwm_newstate_cb(void *wk)
 			DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
 		}
 
-//		timeout_add_msec(&sc->sc_calib_to, 500);
+		timeout_add_msec(&sc->sc_calib_to, 500);
 
-		break; }
+		break;
+#endif
+	}
 
 	default:
 		break;
 	}
 
-	sc->sc_newstate(ic, nstate, arg);
-#endif
-}
-
-int
-iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
-{
-	struct iwm_vap *ivp = IWM_VAP(vap);
-	struct ieee80211com *ic = vap->iv_ic;
-	struct iwm_newstate_state *iwmns;
-	struct ifnet *ifp = ic->ic_ifp;
-	struct iwm_softc *sc = ifp->if_softc;
-
-#ifdef notyet
-	timeout_del(&sc->sc_calib_to);
-#endif
-	iwmns = malloc(sizeof(*iwmns), M_DEVBUF, M_NOWAIT);
-	if (!iwmns) {
-		DPRINTF(("%s: allocating state cb mem failed\n", DEVNAME(sc)));
-		return ENOMEM;
-	}
-
-	iwmns->ns_ic = ic;
-	iwmns->ns_nstate = nstate;
-	iwmns->ns_arg = arg;
-	iwmns->ns_generation = sc->sc_generation;
-
-#ifdef notyet
-	task_set(&iwmns->ns_wk, iwm_newstate_cb, iwmns);
-	task_add(sc->sc_nswq, &iwmns->ns_wk);
-#endif
-
-	return 0;
+	return (ivp->iv_newstate(vap, nstate, arg));
 }
 
 void
@@ -5836,12 +5801,10 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
         case SIOCGIFMEDIA:
                 error = ifmedia_ioctl(ifp, ifr, &ic->ic_media, cmd);
                 break;
-
-                break;
 	case SIOCSIFFLAGS:
 		if (ifp->if_flags & IFF_UP) {
 			if (!(ifp->if_flags & IFF_DRV_RUNNING)) {
-				iwm_init(ifp);
+				iwm_init(sc);
 				ieee80211_start_all(ic);
 			}
 		} else {
@@ -6795,7 +6758,7 @@ iwm_init_task(void *arg1)
 
 	iwm_stop(ifp, 0);
 	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) == IFF_UP)
-		iwm_init(ifp);
+		iwm_init(sc);
 
 	sc->sc_flags &= ~IWM_FLAG_BUSY;
 	wakeup(&sc->sc_flags);
@@ -6832,6 +6795,10 @@ iwm_detach(device_t dev)
 	struct iwm_softc *sc = device_get_softc(dev);
 	struct ifnet *ifp = sc->sc_ifp;
 	struct ieee80211com *ic;
+	struct iwm_fw_info *fw = &sc->sc_fw;
+
+	if (fw->fw_rawdata != NULL)
+		iwm_fw_info_free(fw);
 
 	if (ifp) {
 		ic = ifp->if_l2com;
