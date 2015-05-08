@@ -4536,9 +4536,8 @@ iwm_mvm_scan_fill_channels(struct iwm_softc *sc, struct iwm_scan_cmd *cmd,
 	if (!basic_ssid)
 		type |= (1 << n_ssids);
 
-	for (nchan = 0, c = &ic->ic_channels[1];
-	    c <= &ic->ic_channels[IEEE80211_CHAN_MAX];
-	    c++) {
+	for (nchan = 0; nchan < ic->ic_nchans; nchan++) {
+		c = &ic->ic_channels[nchan];
 		if ((c->ic_flags & flags) != flags)
 			continue;
 
@@ -4550,7 +4549,6 @@ iwm_mvm_scan_fill_channels(struct iwm_softc *sc, struct iwm_scan_cmd *cmd,
 		chan->passive_dwell = htole16(passive_dwell);
 		chan->iteration_count = htole16(1);
 		chan++;
-		nchan++;
 	}
 	if (nchan == 0)
 		DPRINTF(("%s: NO CHANNEL!\n", DEVNAME(sc)));
