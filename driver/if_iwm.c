@@ -2531,7 +2531,8 @@ iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 		}
 
 		hw_value = iwm_nvm_channels[ch_idx];
-		channel = &ic->ic_channels[hw_value];
+		channel = &ic->ic_channels[ic->ic_nchans++];
+		channel->ic_ieee = hw_value;
 
 		is_5ghz = ch_idx >= IWM_NUM_2GHZ_CHANNELS;
 		if (!is_5ghz) {
@@ -2550,7 +2551,13 @@ iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 
 		if (!(ch_flags & IWM_NVM_CHANNEL_ACTIVE))
 			channel->ic_flags |= IEEE80211_CHAN_PASSIVE;
+		DPRINTF(("Ch. %d Flags %x [%sGHz] - Added\n",
+			iwm_nvm_channels[ch_idx],
+			ch_flags,
+			(ch_idx >= IWM_NUM_2GHZ_CHANNELS) ?
+			"5.2" : "2.4"));
 	}
+	ieee80211_sort_channels(ic->ic_channels, ic->ic_nchans);
 }
 
 int
@@ -4528,16 +4535,17 @@ iwm_mvm_scan_fill_channels(struct iwm_softc *sc, struct iwm_scan_cmd *cmd,
 		(cmd->data + le16toh(cmd->tx_cmd.len));
 	int type = (1 << n_ssids) - 1;
 	struct ieee80211_channel *c;
-	int nchan;
+	int nchan, j;
 
 	if (!basic_ssid)
 		type |= (1 << n_ssids);
 
-	for (nchan = 0; nchan < ic->ic_nchans; nchan++) {
-		c = &ic->ic_channels[nchan];
+	for (nchan = j = 0; j < ic->ic_nchans; j++) {
+		c = &ic->ic_channels[j];
 		if ((c->ic_flags & flags) != flags)
 			continue;
-
+		DPRINTFN(10, ("Adding channel %d (%d Mhz) to the list\n",
+			nchan, c->ic_freq));
 		chan->channel = htole16(ieee80211_mhz2ieee(c->ic_freq, flags));
 		chan->type = htole32(type);
 		if (c->ic_flags & IEEE80211_CHAN_PASSIVE)
@@ -4546,6 +4554,7 @@ iwm_mvm_scan_fill_channels(struct iwm_softc *sc, struct iwm_scan_cmd *cmd,
 		chan->passive_dwell = htole16(passive_dwell);
 		chan->iteration_count = htole16(1);
 		chan++;
+		nchan++;
 	}
 	if (nchan == 0)
 		DPRINTF(("%s: NO CHANNEL!\n", DEVNAME(sc)));
@@ -6465,7 +6474,6 @@ iwm_attach(device_t dev)
 	int error, count, rid;
 	int txq_i, i;
 	uint16_t reg;
-	uint8_t bands;
 
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
@@ -6616,6 +6624,7 @@ iwm_attach(device_t dev)
 	IFQ_SET_READY(&ifp->if_snd);
 
 	sc->sc_ic = ic = ifp->if_l2com;
+	ic->ic_ifp = ifp;
 	ic->ic_phytype = IEEE80211_T_OFDM;	/* not only, but not used */
 	ic->ic_opmode = IEEE80211_M_STA;	/* default to BSS mode */
 
@@ -6625,12 +6634,6 @@ iwm_attach(device_t dev)
 	    IEEE80211_C_WPA |		/* WPA/RSN */
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE;	/* short preamble supported */
-
-	bands = 0;
-	setbit(&bands, IEEE80211_MODE_11A);
-	setbit(&bands, IEEE80211_MODE_11B);
-	setbit(&bands, IEEE80211_MODE_11G);
-	ieee80211_init_channels(ic, NULL, &bands);
 
 	for (i = 0; i < nitems(sc->sc_phyctxt); i++) {
 		sc->sc_phyctxt[i].id = i;
@@ -6736,6 +6739,7 @@ iwm_vap_delete(struct ieee80211vap *vap)
 	ieee80211_vap_detach(vap);
 	free(ivp, M_80211_VAP);
 }
+
 static void
 iwm_scan_start(struct ieee80211com *ic)
 {
