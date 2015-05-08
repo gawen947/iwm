@@ -3495,7 +3495,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 		if (error != 0)
 			goto out;
 		error = bus_dmamap_load(ring->data_dmat, data->map,
-		    cmd, hcmd->len[0], iwm_dma_map_addr,
+		    cmd, paylen + sizeof(cmd->hdr), iwm_dma_map_addr,
 		    &paddr, BUS_DMA_NOWAIT);
 		if (error != 0)
 			goto out;
@@ -4151,18 +4151,15 @@ void
 iwm_mvm_power_build_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	struct iwm_mac_power_cmd *cmd)
 {
-	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni = &in->in_ni;
 	int dtimper, dtimper_msec;
 	int keep_alive;
+	struct ieee80211com *ic = sc->sc_ic;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 
 	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id,
 	    in->in_color));
-#ifdef notyet
-	dtimper = ic->ic_dtim_period ?: 1;
-#else
-	dtimper = 1;
-#endif
+	dtimper = vap->iv_dtim_period ?: 1;
 
 	/*
 	 * Regardless of power management state the driver must set
@@ -4623,7 +4620,6 @@ int
 iwm_mvm_scan_request(struct iwm_softc *sc, int flags,
 	int n_ssids, uint8_t *ssid, int ssid_len)
 {
-	struct ieee80211com *ic = sc->sc_ic;
 	struct iwm_host_cmd hcmd = {
 		.id = IWM_SCAN_REQUEST_CMD,
 		.len = { 0, },
@@ -4866,14 +4862,15 @@ void
 iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	struct iwm_mac_data_sta *ctxt_sta, int force_assoc_off)
 {
-#ifdef notyet
 	struct ieee80211_node *ni = &in->in_ni;
 	unsigned dtim_period, dtim_count;
 	struct ieee80211com *ic = sc->sc_ic;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
+
 
 	/* will this work? */
-	dtim_period = ic->ic_dtim_period;
-	dtim_count = ic->ic_dtim_count;
+	dtim_period = vap->iv_dtim_period;
+	dtim_count = vap->iv_dtim_count;
 	DPRINTF(("dtim %d %d\n", dtim_period, dtim_count));
 
 	/* We need the dtim_period to set the MAC as associated */
@@ -4901,10 +4898,12 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 		dtim_offs *= 1024;
 
 		/* XXX: byte order? */
-		memcpy(&tsf, ni->ni_tstamp, sizeof(tsf));
+		tsf = ni->ni_tstamp.tsf;
 
 		ctxt_sta->dtim_tsf = htole64(tsf + dtim_offs);
+#ifdef notyet
 		ctxt_sta->dtim_time = htole64(ni->ni_rstamp + dtim_offs);
+#endif
 
 		DPRINTF(("DTIM TBTT is 0x%llx/0x%x, offset %d\n",
 		    (long long)le64toh(ctxt_sta->dtim_tsf),
@@ -4924,7 +4923,6 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	/* 10 = CONN_MAX_LISTEN_INTERVAL */
 	ctxt_sta->listen_interval = htole32(10);
 	ctxt_sta->assoc_id = htole32(ni->ni_associd);
-#endif
 }
 
 int
@@ -4932,6 +4930,8 @@ iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct iwm_node *in,
 	uint32_t action)
 {
 	struct iwm_mac_ctx_cmd cmd;
+	struct ieee80211com *ic = sc->sc_ic;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 
 	memset(&cmd, 0, sizeof(cmd));
 
@@ -4940,9 +4940,9 @@ iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct iwm_node *in,
 
 	/* Allow beacons to pass through as long as we are not associated,or we
 	 * do not have dtim period information */
-//	if (!in->in_assoc || !sc->sc_ic.ic_dtim_period)
-//		cmd.filter_flags |= htole32(IWM_MAC_FILTER_IN_BEACON);
-//	else
+	if (!in->in_assoc || !vap->iv_dtim_period)
+		cmd.filter_flags |= htole32(IWM_MAC_FILTER_IN_BEACON);
+	else
 		cmd.filter_flags &= ~htole32(IWM_MAC_FILTER_IN_BEACON);
 
 	/* Fill the data specific for station mode */
@@ -5386,7 +5386,6 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 {
 	struct iwm_vap *ivp = IWM_VAP(vap);
 	struct ieee80211com *ic = vap->iv_ic;
-	struct iwm_newstate_state *iwmns;
 	struct ifnet *ifp = ic->ic_ifp;
 	struct iwm_softc *sc = ifp->if_softc;
 
@@ -5402,10 +5401,9 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	if (vap->iv_state == IEEE80211_S_RUN && nstate != vap->iv_state) {
 		iwm_mvm_disable_beacon_filter(sc);
 
-#ifdef notyet
-		if (((in = (void *)ic->ic_bss) != NULL))
+		if (((in = (void *)vap->iv_bss) != NULL))
 			in->in_assoc = 0;
-#endif
+
 		iwm_release(sc, NULL);
 
 		/*
@@ -6759,7 +6757,6 @@ iwm_scan_curchan(struct ieee80211_scan_state *ss, unsigned long maxdwell)
 {
         struct ieee80211vap *vap = ss->ss_vap;
         struct iwm_softc *sc = vap->iv_ic->ic_ifp->if_softc;
-        struct ieee80211com *ic = vap->iv_ic;
 	int error;
 
 	if (sc->sc_scanband)
