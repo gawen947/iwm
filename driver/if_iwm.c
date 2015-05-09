@@ -257,7 +257,7 @@ int	iwm_prepare_card_hw(struct iwm_softc *);
 void	iwm_apm_config(struct iwm_softc *);
 int	iwm_apm_init(struct iwm_softc *);
 void	iwm_apm_stop(struct iwm_softc *);
-int	iwm_allow_mcast(struct iwm_softc *);
+int	iwm_allow_mcast(struct ieee80211vap *, struct iwm_softc *);
 int	iwm_start_hw(struct iwm_softc *);
 void	iwm_stop_device(struct iwm_softc *);
 void	iwm_set_pwr(struct iwm_softc *);
@@ -402,6 +402,7 @@ int	iwm_mvm_mac_ctx_send(struct iwm_softc *, struct iwm_node *, uint32_t);
 int	iwm_mvm_mac_ctxt_add(struct iwm_softc *, struct iwm_node *);
 int	iwm_mvm_mac_ctxt_changed(struct iwm_softc *, struct iwm_node *);
 int	iwm_mvm_update_quotas(struct iwm_softc *, struct iwm_node *);
+static void iwm_auth_task(void *, int);
 int	iwm_auth(struct ieee80211vap *, struct iwm_softc *);
 int	iwm_assoc(struct ieee80211vap *, struct iwm_softc *);
 int	iwm_release(struct iwm_softc *, struct iwm_node *);
@@ -4018,7 +4019,35 @@ static int
 iwm_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
     const struct ieee80211_bpf_params *params)
 {
-	return 0;
+	struct ieee80211com *ic = ni->ni_ic;
+	struct ifnet *ifp = ic->ic_ifp;
+	struct iwm_softc *sc = ifp->if_softc;
+	int error = 0;
+
+	DPRINTFN(10, ("->%s begin\n", __func__));
+
+	if ((ifp->if_drv_flags & IFF_DRV_RUNNING) == 0) {
+		ieee80211_free_node(ni);
+		m_freem(m);
+		DPRINTFN(10, ("<-%s not RUNNING\n", __func__));
+		return (ENETDOWN);
+        }
+
+	//IWN_LOCK(sc);
+        if (params == NULL) {
+		error = iwm_tx(sc, m, ni, 0);
+	} else {
+		error = iwm_tx(sc, m, ni, 0);
+	}
+	if (error != 0) {
+		/* NB: m is reclaimed on tx failure */
+		ieee80211_free_node(ni);
+		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
+	}
+	sc->sc_tx_timer = 5;
+	//IWN_UNLOCK(sc);
+
+        return (error);
 }
 
 #if 0
@@ -5094,6 +5123,20 @@ iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
  * Change to AUTH state in 80211 state machine.  Roughly matches what
  * Linux does in bss_info_changed().
  */
+static void
+iwm_auth_task(void *arg, int pending)
+{
+	struct iwm_softc *sc = arg;
+	struct ieee80211com *ic = sc->sc_ic;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
+	int error;
+
+	if ((error = iwm_auth(vap, sc)) != 0) {
+		DPRINTF(("%s: could not move to auth state: %d\n",
+			DEVNAME(sc), error));
+	}
+}
+
 int
 iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
@@ -5105,9 +5148,11 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 
 	in->in_assoc = 0;
 
-	error = iwm_allow_mcast(sc);
-	if (error)
+	error = iwm_allow_mcast(vap, sc);
+	if (error) {
+		DPRINTF(("%s: failed to set multicast\n", DEVNAME(sc)));
 		return error;
+	}
 
 	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
 		DPRINTF(("%s: failed to add MAC\n", DEVNAME(sc)));
@@ -5133,7 +5178,7 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 
 	/* a bit superfluous? */
 	while (sc->sc_auth_prot)
-		tsleep(&sc->sc_auth_prot, 0, "iwmauth", 0);
+		tsleep(&sc->sc_auth_prot, 0, "iwmauth", hz * 1024);
 	sc->sc_auth_prot = 1;
 
 	duration = min(IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS,
@@ -5155,7 +5200,7 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 			sc->sc_auth_prot = 0;
 			return EAUTH;
 		}
-		tsleep(&sc->sc_auth_prot, 0, "iwmau2", 0);
+		tsleep(&sc->sc_auth_prot, 0, "iwmau2", hz * 1024);
 	}
 
 	return 0;
@@ -5371,8 +5416,8 @@ iwm_media_change(struct ifnet *ifp)
 	}
 #endif
 
-	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) ==
-	    (IFF_UP | IFF_DRV_RUNNING)) {
+	if ((ifp->if_flags & IFF_UP) &&
+	    (ifp->if_drv_flags & IFF_DRV_RUNNING)) {
 		iwm_stop(ifp, 0);
 		iwm_init(sc);
 	}
@@ -5432,11 +5477,14 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		break;
 
 	case IEEE80211_S_AUTH:
+#if 0
 		if ((error = iwm_auth(vap, sc)) != 0) {
 			DPRINTF(("%s: could not move to auth state: %d\n",
 			    DEVNAME(sc), error));
 			break;
 		}
+#endif
+		taskqueue_enqueue(sc->sc_tq, &sc->sc_auth_task);
 
 		break;
 
@@ -5585,11 +5633,9 @@ iwm_init_hw(struct iwm_softc *sc)
 
 /* Allow multicast from our BSSID. */
 int
-iwm_allow_mcast(struct iwm_softc *sc)
+iwm_allow_mcast(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
-#ifdef notyet
-	struct ieee80211com *ic = sc->sc_ic;
-	struct ieee80211_node *ni = ic->ic_bss;
+	struct ieee80211_node *ni = vap->iv_bss;
 	struct iwm_mcast_filter_cmd *cmd;
 	size_t size;
 	int error;
@@ -5607,9 +5653,8 @@ iwm_allow_mcast(struct iwm_softc *sc)
 	error = iwm_mvm_send_cmd_pdu(sc, IWM_MCAST_FILTER_CMD,
 	    IWM_CMD_SYNC, size, cmd);
 	free(cmd, M_DEVBUF);
-	return error;
-#endif
-	return 0;
+
+	return (error);
 }
 
 /*
@@ -5637,9 +5682,8 @@ iwm_init(void *arg)
 	/*
  	 * Ok, firmware loaded and we are jogging
 	 */
-
-	ifp->if_flags &= ~IFF_DRV_OACTIVE;
-	ifp->if_flags |= IFF_DRV_RUNNING;
+	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
+	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 	sc->sc_flags |= IWM_FLAG_HW_INITED;
 }
 
@@ -5650,17 +5694,17 @@ iwm_init(void *arg)
 void
 iwm_start(struct ifnet *ifp)
 {
-#ifdef notyet
 	struct iwm_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni;
 	struct ether_header *eh;
 	struct mbuf *m;
-	int ac;
+	int ac = 0;
 
-	if ((ifp->if_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) != IFF_DRV_RUNNING)
+	if ((ifp->if_drv_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) != IFF_DRV_RUNNING)
 		return;
 
+	DPRINTFN(10, ("->%s\n", __func__));
 	for (;;) {
 		/* why isn't this done per-queue? */
 		if (sc->qfullmsk != 0) {
@@ -5668,6 +5712,7 @@ iwm_start(struct ifnet *ifp)
 			break;
 		}
 
+#ifdef notyet
 		/* need to send management frames even if we're not RUNning */
 		IF_DEQUEUE(&ic->ic_mgtq, m);
 		if (m) {
@@ -5678,31 +5723,34 @@ iwm_start(struct ifnet *ifp)
 		if (ic->ic_state != IEEE80211_S_RUN) {
 			break;
 		}
+#endif
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		IFQ_DRV_DEQUEUE(&ifp->if_snd, m);
 		if (!m)
 			break;
+		ni = (struct ieee80211_node *)m->m_pkthdr.rcvif;
+#ifdef notyet
 		if (m->m_len < sizeof (*eh) &&
 		    (m = m_pullup(m, sizeof (*eh))) == NULL) {
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
-#ifdef notyet
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
-#endif
+
 		if ((m = ieee80211_encap(ifp, m, &ni)) == NULL) {
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
+#endif
 
- sendit:
+// sendit:
 #ifdef notyet
 		if (ic->ic_rawbpf != NULL)
 			bpf_mtap(ic->ic_rawbpf, m, BPF_DIRECTION_OUT);
 #endif
 		if (iwm_tx(sc, m, ni, ac) != 0) {
-//			ieee80211_release_node(ic, ni);
+			ieee80211_free_node(ni);
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			continue;
 		}
@@ -5712,9 +5760,9 @@ iwm_start(struct ifnet *ifp)
 //			ifp->if_timer = 1;
 		}
 	}
+	DPRINTFN(10, ("<-%s\n", __func__));
 
 	return;
-#endif
 }
 
 void
@@ -5729,7 +5777,7 @@ iwm_stop(struct ifnet *ifp, int disable)
 	sc->sc_scanband = 0;
 	sc->sc_auth_prot = 0;
 //	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
-	ifp->if_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
+	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
 
 #ifdef notyet
 	if (ic->ic_state != IEEE80211_S_INIT)
@@ -5783,12 +5831,12 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
                 break;
 	case SIOCSIFFLAGS:
 		if (ifp->if_flags & IFF_UP) {
-			if (!(ifp->if_flags & IFF_DRV_RUNNING)) {
+			if (!(ifp->if_drv_flags & IFF_DRV_RUNNING)) {
 				iwm_init(sc);
 				ieee80211_start_all(ic);
 			}
 		} else {
-			if (ifp->if_flags & IFF_DRV_RUNNING)
+			if (ifp->if_drv_flags & IFF_DRV_RUNNING)
 				iwm_stop(ifp, 1);
 		}
 		break;
@@ -6460,6 +6508,7 @@ iwm_attach(device_t dev)
 	sc->sc_dev = dev;
 
 	TASK_INIT(&sc->sc_es_task, 0, iwm_endscan_cb, sc);
+	TASK_INIT(&sc->sc_auth_task, 0, iwm_auth_task, sc);
 	sc->sc_tq = taskqueue_create("iwm_taskq", M_WAITOK,
             taskqueue_thread_enqueue, &sc->sc_tq);
         error = taskqueue_start_threads(&sc->sc_tq, 1, 0, "iwm_taskq");
@@ -6780,7 +6829,8 @@ iwm_init_task(void *arg1)
 	sc->sc_flags |= IWM_FLAG_BUSY;
 
 	iwm_stop(ifp, 0);
-	if ((ifp->if_flags & (IFF_UP | IFF_DRV_RUNNING)) == IFF_UP)
+	if ((ifp->if_flags & IFF_UP) &&
+	    (ifp->if_drv_flags & IFF_DRV_RUNNING))
 		iwm_init(sc);
 
 	sc->sc_flags &= ~IWM_FLAG_BUSY;
@@ -6806,7 +6856,7 @@ static int
 iwm_suspend(device_t dev)
 {
 #ifdef notyet
-	if (ifp->if_flags & IFF_DRV_RUNNING)
+	if (ifp->if_drv_flags & IFF_DRV_RUNNING)
 		iwm_stop(ifp, 0);
 #endif
 	return (0);
