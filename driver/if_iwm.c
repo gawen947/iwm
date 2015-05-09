@@ -5486,12 +5486,12 @@ iwm_endscan_cb(void *arg, int pending)
 	struct iwm_softc *sc = arg;
 	struct ieee80211com *ic = sc->sc_ic;
 	int done;
+	int error;
 
 	DPRINTF(("scan ended\n"));
 
 	if (sc->sc_scanband == IEEE80211_CHAN_2GHZ &&
 	    sc->sc_nvm.sku_cap_band_52GHz_enable) {
-		int error;
 		done = 0;
 		if ((error = iwm_mvm_scan_request(sc,
 		    IEEE80211_CHAN_5GHZ, 0, NULL, 0)) != 0) {
@@ -5504,12 +5504,6 @@ iwm_endscan_cb(void *arg, int pending)
 
 	if (done) {
 		ieee80211_scan_done(TAILQ_FIRST(&ic->ic_vaps));
-
-		if (!sc->sc_scanband) {
-//			ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
-		} else {
-//			ieee80211_end_scan(&ic->ic_if);
-		}
 		sc->sc_scanband = 0;
 	}
 
