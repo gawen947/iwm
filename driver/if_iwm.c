@@ -411,7 +411,7 @@ struct ieee80211_node *
 	    const uint8_t[IEEE80211_ADDR_LEN]);
 
 void	iwm_calib_timeout(void *);
-void	iwm_setrates(struct iwm_node *);
+void	iwm_setrates(struct iwm_softc *, struct iwm_node *);
 int	iwm_media_change(struct ifnet *);
 void	iwm_newstate_cb(void *);
 int	iwm_newstate(struct ieee80211vap *, enum ieee80211_state, int);
@@ -3079,6 +3079,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	struct iwm_rx_packet *pkt, struct iwm_rx_data *data)
 {
 	struct ieee80211com *ic = sc->sc_ic;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 	struct ieee80211_frame *wh;
 	struct ieee80211_node *ni;
 	struct ieee80211_channel *c = NULL;
@@ -3133,9 +3134,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	if (ni && c)
 		ni->ni_chan = c;
 
-#ifdef notyet
-	if (ieee80211_radiotap_active(ic)) {
-		struct mbuf mb;
+	if (ieee80211_radiotap_active_vap(vap)) {
 		struct iwm_rx_radiotap_header *tap = &sc->sc_rxtap;
 
 		tap->wr_flags = 0;
@@ -3166,16 +3165,9 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		/* Unknown rate: should not happen. */
 		default:  tap->wr_rate =   0;
 		}
-
-		mb.m_data = (caddr_t)tap;
-		mb.m_len = sc->sc_rxtap_len;
-		mb.m_next = m;
-		mb.m_nextpkt = NULL;
-		mb.m_type = 0;
-		mb.m_flags = 0;
-		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_IN);
+		/* XXX missing radiotap_rx? */
 	}
-#endif
+
 	if (ni != NULL) {
 		ieee80211_input(ni, m, rssi - sc->sc_noise, sc->sc_noise);
 		ieee80211_free_node(ni);
@@ -3825,30 +3817,6 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 
 	rinfo = iwm_tx_fill_cmd(sc, in, wh, tx);
 
-#ifdef notyet
-	if (sc->sc_drvbpf != NULL) {
-		struct mbuf mb;
-		struct iwm_tx_radiotap_header *tap = &sc->sc_txtap;
-
-		tap->wt_flags = 0;
-		tap->wt_chan_freq = htole16(ni->ni_chan->ic_freq);
-		tap->wt_chan_flags = htole16(ni->ni_chan->ic_flags);
-		tap->wt_rate = rinfo->rate;
-		tap->wt_hwqueue = ac;
-		if ((ic->ic_flags & IEEE80211_F_WEPON) &&
-		    (wh->i_fc[1] & IEEE80211_FC1_PROTECTED))
-			tap->wt_flags |= IEEE80211_RADIOTAP_F_WEP;
-
-		mb.m_data = (caddr_t)tap;
-		mb.m_len = sc->sc_txtap_len;
-		mb.m_next = m;
-		mb.m_nextpkt = NULL;
-		mb.m_type = 0;
-		mb.m_flags = 0;
-		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_OUT);
-	}
-#endif
-
 	/* Encrypt the frame if need be. */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
 		/* Retrieve key for TX && do software encryption. */
@@ -3860,6 +3828,20 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		/* 802.11 header may have moved. */
 		wh = mtod(m, struct ieee80211_frame *);
 	}
+
+	if (ieee80211_radiotap_active_vap(vap)) {
+		struct iwm_tx_radiotap_header *tap = &sc->sc_txtap;
+
+		tap->wt_flags = 0;
+		tap->wt_chan_freq = htole16(ni->ni_chan->ic_freq);
+		tap->wt_chan_flags = htole16(ni->ni_chan->ic_flags);
+		tap->wt_rate = rinfo->rate;
+		tap->wt_hwqueue = ac;
+		if (k != NULL)
+			tap->wt_flags |= IEEE80211_RADIOTAP_F_WEP;
+		ieee80211_radiotap_tx(vap, m);
+	}
+
 
 	totlen = m->m_pkthdr.len;
 
@@ -5305,12 +5287,10 @@ iwm_calib_timeout(void *arg)
 }
 
 void
-iwm_setrates(struct iwm_node *in)
+iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 {
-#ifdef notyet
 	struct ieee80211_node *ni = &in->in_ni;
 	struct ieee80211com *ic = ni->ni_ic;
-	struct iwm_softc *sc;
 	struct iwm_lq_cmd *lq = &in->in_lq;
 	int nrates = ni->ni_rates.rs_nrates;
 	int i, ridx, tab = 0;
@@ -5380,10 +5360,9 @@ iwm_setrates(struct iwm_node *in)
 	}
 
 	/* init amrr */
-	ieee80211_amrr_node_init(&sc->sc_amrr, &in->in_amn);
+//	ieee80211_ratectl_node_init(&sc->sc_amrr, &in->in_amn);
 	/* Start at lowest available bit-rate, AMRR will raise. */
 	ni->ni_txrate = 0;
-#endif
 }
 
 int
@@ -5502,7 +5481,7 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		iwm_mvm_power_mac_update_mode(sc, in);
 		iwm_mvm_enable_beacon_filter(sc, in);
 		iwm_mvm_update_quotas(sc, in);
-		iwm_setrates(in);
+		iwm_setrates(sc, in);
 
 		cmd.data[0] = &in->in_lq;
 		if ((error = iwm_send_cmd(sc, &cmd)) != 0) {
@@ -5770,7 +5749,6 @@ iwm_stop(struct ifnet *ifp, int disable)
 	sc->sc_generation++;
 	sc->sc_scanband = 0;
 	sc->sc_auth_prot = 0;
-//	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
 
 #ifdef notyet
@@ -5778,8 +5756,9 @@ iwm_stop(struct ifnet *ifp, int disable)
 		ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
 
 	timeout_del(&sc->sc_calib_to);
-	ifp->if_timer = sc->sc_tx_timer = 0;
 #endif
+	sc->sc_tx_timer = 0;
+
 	iwm_stop_device(sc);
 }
 
@@ -6671,13 +6650,6 @@ iwm_attach(device_t dev)
 		sc->sc_phyctxt[i].id = i;
 	}
 
-#ifdef notyet
-	sc->sc_amrr.amrr_min_success_threshold =  1;
-	sc->sc_amrr.amrr_max_success_threshold = 15;
-
-	/* IBSS channel undefined for now. */
-	ic->ic_ibss_chan = &ic->ic_channels[1];
-#endif
 	/* Max RSSI */
 	sc->sc_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
 
