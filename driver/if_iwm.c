@@ -3773,10 +3773,9 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 int
 iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 {
-	printf("%s\n", __func__);
-#ifdef notyet
 	struct ieee80211com *ic = sc->sc_ic;
-	struct iwm_node *in = (void *)ni;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
+	struct iwm_node *in = (struct iwm_node *)ni;
 	struct iwm_tx_ring *ring;
 	struct iwm_tx_data *data;
 	struct iwm_tfd *desc;
@@ -3788,16 +3787,17 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	const struct iwm_rate *rinfo;
 	uint32_t flags;
 	u_int hdrlen;
-	bus_dma_segment_t *seg;
+	bus_dma_segment_t *seg, segs[IWM_MAX_SCATTER];
+	int nsegs;
 	uint8_t tid, type;
 	int i, totlen, error, pad;
 	int hdrlen2;
 
-
 	wh = mtod(m, struct ieee80211_frame *);
-	hdrlen = ieee80211_get_hdrlen(wh);
+	hdrlen = ieee80211_anyhdrsize(wh);
 	type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 
+#ifdef notyet
 	hdrlen2 = (ieee80211_has_qos(wh)) ?
 	    sizeof (struct ieee80211_qosframe) :
 	    sizeof (struct ieee80211_frame);
@@ -3805,7 +3805,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	if (hdrlen != hdrlen2)
 		DPRINTF(("%s: hdrlen error (%d != %d)\n",
 		    DEVNAME(sc), hdrlen, hdrlen2));
-
+#endif
 	tid = 0;
 
 	ring = &sc->txq[ac];
@@ -3847,18 +3847,20 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		mb.m_flags = 0;
 		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_OUT);
 	}
-
+#endif
 
 	/* Encrypt the frame if need be. */
 	if (wh->i_fc[1] & IEEE80211_FC1_PROTECTED) {
 		/* Retrieve key for TX && do software encryption. */
-                k = ieee80211_get_txkey(ic, wh, ni);
-		if ((m = ieee80211_encrypt(ic, m, k)) == NULL)
-			return ENOBUFS;
+		k = ieee80211_crypto_encap(ni, m);
+		if (k == NULL) {
+			m_freem(m);
+			return (ENOBUFS);
+		}
 		/* 802.11 header may have moved. */
 		wh = mtod(m, struct ieee80211_frame *);
 	}
-#endif
+
 	totlen = m->m_pkthdr.len;
 
 	flags = 0;
@@ -3866,13 +3868,11 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		flags |= IWM_TX_CMD_FLG_ACK;
 	}
 
-#ifdef notyet
 	if (type != IEEE80211_FC0_TYPE_DATA
-	    && (totlen + IEEE80211_CRC_LEN > ic->ic_rtsthreshold)
+	    && (totlen + IEEE80211_CRC_LEN > vap->iv_rtsthreshold)
 	    && !IEEE80211_IS_MULTICAST(wh->i_addr1)) {
 		flags |= IWM_TX_CMD_FLG_PROT_REQUIRE;
 	}
-#endif
 
 	if (IEEE80211_IS_MULTICAST(wh->i_addr1) ||
 	    type != IEEE80211_FC0_TYPE_DATA)
@@ -3920,10 +3920,8 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 
 	/* Trim 802.11 header. */
 	m_adj(m, hdrlen);
-#ifdef notyet
-	error = bus_dmamap_load_mbuf(ring->data_dmat, data->map, m,
-	    BUS_DMA_NOWAIT);
-#endif
+	error = bus_dmamap_load_mbuf_sg(ring->data_dmat, data->map, m,
+	    segs, &nsegs, BUS_DMA_NOWAIT);
 	if (error != 0) {
 		if (error != EFBIG) {
 			printf("%s: can't map mbuf (error %d)\n", DEVNAME(sc),
@@ -3949,16 +3947,14 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 		m1->m_pkthdr.len = m1->m_len = m->m_pkthdr.len;
 		m_freem(m);
 		m = m1;
-#ifdef notyet
-		error = bus_dmamap_load_mbuf(ring->data_dmat, data->map, m,
-		    BUS_DMA_NOWAIT);
+		error = bus_dmamap_load_mbuf_sg(ring->data_dmat, data->map, m,
+		    segs, &nsegs, BUS_DMA_NOWAIT);
 		if (error != 0) {
 			printf("%s: can't map mbuf (error %d)\n", DEVNAME(sc),
 			    error);
 			m_freem(m);
 			return error;
 		}
-#endif
 	}
 	data->m = m;
 	data->in = in;
@@ -3968,10 +3964,10 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	KASSERT(data->in != NULL);
 
 	DPRINTFN(8, ("sending data: qid=%d idx=%d len=%d nsegs=%d\n",
-	    ring->qid, ring->cur, totlen, data->map->dm_nsegs));
+	    ring->qid, ring->cur, totlen, nsegs));
 
 	/* Fill TX descriptor. */
-//	desc->num_tbs = 2 + data->map->dm_nsegs;
+	desc->num_tbs = 2 + nsegs;
 
 	desc->tbs[0].lo = htole32(data->cmd_paddr);
 	desc->tbs[0].hi_n_len = htole16(iwm_get_dma_hi_addr(data->cmd_paddr)) |
@@ -3981,16 +3977,14 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	    ((sizeof(struct iwm_cmd_header) + sizeof(*tx)
 	      + hdrlen + pad - TB0_SIZE) << 4);
 
-#ifdef notyet
 	/* Other DMA segments are for data payload. */
-	seg = data->map->dm_segs;
-	for (i = 0; i < data->map->dm_nsegs; i++, seg++) {
+	for (i = 0; i < nsegs; i++) {
+		seg = &segs[i];
 		desc->tbs[i+2].lo = htole32(seg->ds_addr);
 		desc->tbs[i+2].hi_n_len = \
 		    htole16(iwm_get_dma_hi_addr(seg->ds_addr))
 		    | ((seg->ds_len) << 4);
 	}
-#endif
 
 	bus_dmamap_sync(ring->data_dmat, data->map,
 	    BUS_DMASYNC_PREWRITE);
@@ -4011,7 +4005,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	if (++ring->queued > IWM_TX_RING_HIMARK) {
 		sc->qfullmsk |= 1 << ring->qid;
 	}
-#endif
+
 	return 0;
 }
 
