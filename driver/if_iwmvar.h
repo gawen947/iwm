@@ -471,8 +471,8 @@ struct iwm_softc {
 	uint8_t sc_cmd_resp[IWM_CMD_RESP_MAX];
 	int sc_wantresp;
 
-	struct taskq *sc_nswq, *sc_eswq;
-	struct task sc_eswk;
+	struct taskqueue *sc_tq;
+	struct task sc_es_task;
 
 	struct iwm_rx_phy_info sc_last_phy_info;
 	int sc_ampdu_ref;
