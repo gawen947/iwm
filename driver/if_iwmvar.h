@@ -502,6 +502,8 @@ struct iwm_softc {
 	} sc_txtapu;
 #define sc_txtap	sc_txtapu.th
 	int			sc_txtap_len;
+
+	int		sc_max_rssi;
 };
 
 struct iwm_node {

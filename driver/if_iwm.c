@@ -3081,11 +3081,9 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	struct ieee80211_frame *wh;
 	struct ieee80211_node *ni;
 	struct ieee80211_channel *c = NULL;
-//	struct ieee80211_rxinfo rxi;
 	struct mbuf *m;
 	struct iwm_rx_phy_info *phy_info;
 	struct iwm_rx_mpdu_res_start *rx_res;
-	int device_timestamp;
 	uint32_t len;
 	uint32_t rx_pkt_status;
 	int rssi;
@@ -3114,15 +3112,13 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		return; /* drop */
 	}
 
-	device_timestamp = le32toh(phy_info->system_timestamp);
-
 	if (sc->sc_capaflags & IWM_UCODE_TLV_FLAGS_RX_ENERGY_API) {
 		rssi = iwm_mvm_get_signal_strength(sc, phy_info);
 	} else {
 		rssi = iwm_mvm_calc_rssi(sc, phy_info);
 	}
 	rssi = (0 - IWM_MIN_DBM) + rssi;	/* normalize */
-//	rssi = MIN(rssi, ic->ic_max_rssi);	/* clip to max. 100% */
+	rssi = MIN(rssi, sc->sc_max_rssi);	/* clip to max. 100% */
 
 	/* replenish ring for the buffer we're going to feed to the sharks */
 	if (iwm_rx_addbuf(sc, IWM_RBUF_SIZE, sc->rxq.cur) != 0)
@@ -3132,18 +3128,12 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		if (le32toh(phy_info->channel) < nitems(ic->ic_channels))
 			c = &ic->ic_channels[le32toh(phy_info->channel)];
 	}
-#ifdef notyet
-	memset(&rxi, 0, sizeof(rxi));
-	rxi.rxi_rssi = rssi;
-	rxi.rxi_tstamp = device_timestamp;
-	ni = ieee80211_find_rxnode(ic, wh);
-#endif
-	return;
-	if (c)
+	ni = ieee80211_find_rxnode(ic, (struct ieee80211_frame_min *)wh);
+	if (ni && c)
 		ni->ni_chan = c;
 
 #ifdef notyet
-	if (sc->sc_drvbpf != NULL) {
+	if (ieee80211_radiotap_active(ic)) {
 		struct mbuf mb;
 		struct iwm_rx_radiotap_header *tap = &sc->sc_rxtap;
 
@@ -3184,10 +3174,14 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		mb.m_flags = 0;
 		bpf_mtap(sc->sc_drvbpf, &mb, BPF_DIRECTION_IN);
 	}
-
-	ieee80211_input(sc->sc_ifp, m, ni, &rxi);
-	ieee80211_release_node(ic, ni);
 #endif
+	if (ni != NULL) {
+		ieee80211_input(ni, m, rssi - sc->sc_noise, sc->sc_noise);
+		ieee80211_free_node(ni);
+	} else {
+		ieee80211_input_all(ic, m, rssi - sc->sc_noise,
+		    sc->sc_noise);
+	}
 }
 
 void
@@ -5467,7 +5461,7 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			.flags = IWM_CMD_SYNC,
 		};
 
-		in = (struct iwm_node *)ic->ic_bss;
+		in = (struct iwm_node *)vap->iv_bss;
 		iwm_mvm_power_mac_update_mode(sc, in);
 		iwm_mvm_enable_beacon_filter(sc, in);
 		iwm_mvm_update_quotas(sc, in);
@@ -6632,8 +6626,10 @@ iwm_attach(device_t dev)
 	ic->ic_caps =
 	    IEEE80211_C_STA |
 	    IEEE80211_C_WPA |		/* WPA/RSN */
+	    IEEE80211_C_WME |
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
-	    IEEE80211_C_SHPREAMBLE;	/* short preamble supported */
+	    IEEE80211_C_SHPREAMBLE |	/* short preamble supported */
+	    IEEE80211_C_BGSCAN;		/* capable of bg scanning */
 
 	for (i = 0; i < nitems(sc->sc_phyctxt); i++) {
 		sc->sc_phyctxt[i].id = i;
@@ -6645,10 +6641,10 @@ iwm_attach(device_t dev)
 
 	/* IBSS channel undefined for now. */
 	ic->ic_ibss_chan = &ic->ic_channels[1];
-
-	/* Max RSSI */
-	ic->ic_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
 #endif
+	/* Max RSSI */
+	sc->sc_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
+
 
 #ifdef notyet
 	timeout_set(&sc->sc_calib_to, iwm_calib_timeout, sc);
