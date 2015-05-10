@@ -474,6 +474,8 @@ struct iwm_softc {
 	struct taskqueue *sc_tq;
 	struct task sc_es_task;
 	struct task sc_auth_task;
+	struct task sc_assoc_task;
+	struct task sc_run_task;
 
 	struct iwm_rx_phy_info sc_last_phy_info;
 	int sc_ampdu_ref;
