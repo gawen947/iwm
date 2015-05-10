@@ -119,6 +119,7 @@ __FBSDID("$FreeBSD$");
 #include <sys/rman.h>
 #include <sys/socket.h>
 #include <sys/sockio.h>
+#include <sys/sysctl.h>
 #include <sys/linker.h>
 
 #include <machine/bus.h>
@@ -3783,23 +3784,11 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	int nsegs;
 	uint8_t tid, type;
 	int i, totlen, error, pad;
-	int hdrlen2;
 
 	wh = mtod(m, struct ieee80211_frame *);
 	hdrlen = ieee80211_anyhdrsize(wh);
 	type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
-
-#ifdef notyet
-	hdrlen2 = (ieee80211_has_qos(wh)) ?
-	    sizeof (struct ieee80211_qosframe) :
-	    sizeof (struct ieee80211_frame);
-
-	if (hdrlen != hdrlen2)
-		DPRINTF(("%s: hdrlen error (%d != %d)\n",
-		    DEVNAME(sc), hdrlen, hdrlen2));
-#endif
 	tid = 0;
-
 	ring = &sc->txq[ac];
 	desc = &ring->desc[ring->cur];
 	memset(desc, 0, sizeof(*desc));
@@ -5115,7 +5104,6 @@ iwm_auth_task(void *arg, int pending)
 int
 iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
-	struct ieee80211com *ic = sc->sc_ic;
 	struct iwm_node *in = (struct iwm_node *)vap->iv_bss;
 	uint32_t duration;
 	uint32_t min_duration;
@@ -5228,7 +5216,6 @@ iwm_assoc_task(void *arg, int pending)
 int
 iwm_assoc(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
-	struct ieee80211com *ic = sc->sc_ic;
 	struct iwm_node *in = (struct iwm_node *)vap->iv_bss;
 	int error;
 
@@ -5333,7 +5320,6 @@ void
 iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 {
 	struct ieee80211_node *ni = &in->in_ni;
-	struct ieee80211com *ic = ni->ni_ic;
 	struct iwm_lq_cmd *lq = &in->in_lq;
 	int nrates = ni->ni_rates.rs_nrates;
 	int i, ridx, tab = 0;
@@ -5410,25 +5396,11 @@ int
 iwm_media_change(struct ifnet *ifp)
 {
 	struct iwm_softc *sc = ifp->if_softc;
-	struct ieee80211com *ic = sc->sc_ic;
-	uint8_t rate, ridx;
 	int error;
 
 	error = ieee80211_media_change(ifp);
 	if (error != ENETRESET)
 		return error;
-
-#ifdef notyet
-	if (ic->ic_fixed_rate != -1) {
-		rate = ic->ic_sup_rates[ic->ic_curmode].
-		    rs_rates[ic->ic_fixed_rate] & IEEE80211_RATE_VAL;
-		/* Map 802.11 rate to HW rate index. */
-		for (ridx = 0; ridx <= IWM_RIDX_MAX; ridx++)
-			if (iwm_rates[ridx].rate == rate)
-				break;
-		sc->sc_fixed_ridx = ridx;
-	}
-#endif
 
 	if ((ifp->if_flags & IFF_UP) &&
 	    (ifp->if_drv_flags & IFF_DRV_RUNNING)) {
@@ -5446,12 +5418,10 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	struct ieee80211com *ic = vap->iv_ic;
 	struct ifnet *ifp = ic->ic_ifp;
 	struct iwm_softc *sc = ifp->if_softc;
-
+	struct iwm_node *in;
 #ifdef notyet
 	callout_stop(&sc->sc_calib_to);
 #endif
-	struct iwm_node *in;
-	int error;
 
 	DPRINTF(("switching state %d->%d\n", vap->iv_state, nstate));
 
@@ -5713,9 +5683,7 @@ void
 iwm_start(struct ifnet *ifp)
 {
 	struct iwm_softc *sc = ifp->if_softc;
-	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211_node *ni;
-	struct ether_header *eh;
 	struct mbuf *m;
 	int ac = 0;
 
@@ -5752,7 +5720,6 @@ void
 iwm_stop(struct ifnet *ifp, int disable)
 {
 	struct iwm_softc *sc = ifp->if_softc;
-	struct ieee80211com *ic = sc->sc_ic;
 
 	sc->sc_flags &= ~IWM_FLAG_HW_INITED;
 	sc->sc_flags |= IWM_FLAG_STOPPED;
@@ -6468,7 +6435,6 @@ iwm_preinit(struct iwm_softc *sc)
 	iwm_radiotap_attach(sc);
 	if (bootverbose)
 		ieee80211_announce(ic);
-
 	DPRINTFN(10, ("<-%s\n", __func__));
 
 	return 0;
@@ -6625,14 +6591,6 @@ iwm_attach(device_t dev)
 		goto fail4;
 	}
 
-#ifdef notyet
-	sc->sc_eswq = taskq_create("iwmes", 1, IPL_NET, 0);
-	if (sc->sc_eswq == NULL)
-		goto fail4;
-	sc->sc_nswq = taskq_create("iwmns", 1, IPL_NET, 0);
-	if (sc->sc_nswq == NULL)
-		goto fail4;
-#endif
 	/* Clear pending interrupts. */
 	IWM_WRITE(sc, IWM_CSR_INT, 0xffffffff);
 
@@ -6646,7 +6604,6 @@ iwm_attach(device_t dev)
 	ifp->if_init = iwm_init;
 	ifp->if_ioctl = iwm_ioctl;
 	ifp->if_start = iwm_start;
-//	ifp->if_watchdog = iwm_watchdog;
 	IFQ_SET_MAXLEN(&ifp->if_snd, ifqmaxlen);
 	ifp->if_snd.ifq_drv_maxlen = ifqmaxlen;
 	IFQ_SET_READY(&ifp->if_snd);
@@ -6675,7 +6632,6 @@ iwm_attach(device_t dev)
 
 #ifdef notyet
 	timeout_set(&sc->sc_calib_to, iwm_calib_timeout, sc);
-	task_set(&sc->init_task, iwm_init_task, sc);
 #endif
 
 #ifdef notyet
@@ -6688,6 +6644,10 @@ iwm_attach(device_t dev)
 	else
 #endif
 		iwm_attach_hook(sc);
+
+	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
+	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO, "debug",
+	    CTLFLAG_RW, &iwm_debug, iwm_debug, "control debugging");
 
 	return 0;
 
