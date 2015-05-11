@@ -6818,12 +6818,14 @@ iwm_detach(device_t dev)
 	if (fw->fw_rawdata != NULL)
 		iwm_fw_info_free(fw);
 
+	taskqueue_drain_all(sc->sc_tq);
+	taskqueue_free(sc->sc_tq);
+
 	if (ifp) {
 		ic = ifp->if_l2com;
-		taskqueue_drain_all(sc->sc_tq);
-		taskqueue_free(sc->sc_tq);
 		iwm_stop_device(sc);
-		ieee80211_ifdetach(ic);
+		if (ic)
+			ieee80211_ifdetach(ic);
 		if_free(ifp);
 	}
 	if (sc->sc_irq != NULL) {
