@@ -148,6 +148,9 @@ __FBSDID("$FreeBSD$");
 #include <net80211/ieee80211_ratectl.h>
 #include <net80211/ieee80211_radiotap.h>
 
+#define	IWM_LOCK(_sc)	mtx_lock(&sc->sc_mtx)
+#define	IWM_UNLOCK(_sc)	mtx_unlock(&sc->sc_mtx)
+
 #define DEVNAME(_s)	(device_get_nameunit((_s)->sc_dev))
 
 #define le16_to_cpup(_a_) (le16toh(*(const uint16_t *)(_a_)))
@@ -403,9 +406,8 @@ int	iwm_mvm_mac_ctx_send(struct iwm_softc *, struct iwm_node *, uint32_t);
 int	iwm_mvm_mac_ctxt_add(struct iwm_softc *, struct iwm_node *);
 int	iwm_mvm_mac_ctxt_changed(struct iwm_softc *, struct iwm_node *);
 int	iwm_mvm_update_quotas(struct iwm_softc *, struct iwm_node *);
-static void iwm_auth_task(void *, int);
-int	iwm_auth(struct ieee80211vap *, struct iwm_softc *);
-int	iwm_assoc(struct ieee80211vap *, struct iwm_softc *);
+static int	iwm_auth(struct ieee80211vap *, struct iwm_softc *);
+static int	iwm_assoc(struct ieee80211vap *, struct iwm_softc *);
 int	iwm_release(struct iwm_softc *, struct iwm_node *);
 struct ieee80211_node *
 	iwm_node_alloc(struct ieee80211vap *,
@@ -418,9 +420,12 @@ void	iwm_newstate_cb(void *);
 int	iwm_newstate(struct ieee80211vap *, enum ieee80211_state, int);
 void	iwm_endscan_cb(void *, int);
 int	iwm_init_hw(struct iwm_softc *);
-void	iwm_init(void *);
-void	iwm_start(struct ifnet *);
-void	iwm_stop(struct ifnet *, int);
+static void	iwm_init(void *);
+static void	iwm_init_locked(struct iwm_softc *);
+static void	iwm_start(struct ifnet *);
+static void	iwm_start_locked(struct ifnet *);
+static void	iwm_stop(struct ifnet *, int);
+static void	iwm_stop_locked(struct ifnet *);
 void	iwm_watchdog(struct ifnet *);
 int	iwm_ioctl(struct ifnet *, u_long, iwm_caddr_t);
 const char *iwm_desc_lookup(uint32_t);
@@ -550,7 +555,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 		return 0;
 
 	while (fw->fw_status == IWM_FW_STATUS_INPROGRESS)
-		tsleep(&sc->sc_fw, 0, "iwmfwp", 0);
+		msleep(&sc->sc_fw, &sc->sc_mtx, 0, "iwmfwp", 0);
 	fw->fw_status = IWM_FW_STATUS_INPROGRESS;
 
 	if (fw->fw_rawdata != NULL)
@@ -560,12 +565,15 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	 * Load firmware into driver memory.
 	 * fw_rawdata and fw_rawsize will be set.
 	 */
+	IWM_UNLOCK(sc);
 	fwp = firmware_get(sc->sc_fwname);
 	if (fwp == NULL) {
 		printf("%s: could not read firmware %s (error %d)\n",
 		    DEVNAME(sc), sc->sc_fwname, error);
+		IWM_LOCK(sc);
 		goto out;
 	}
+	IWM_LOCK(sc);
 	fw->fw_rawdata = fwp->data;
 	fw->fw_rawsize = fwp->datasize;
 
@@ -1242,10 +1250,7 @@ int
 iwm_check_rfkill(struct iwm_softc *sc)
 {
 	uint32_t v;
-	int s;
 	int rv;
-
-	s = splnet();
 
 	/*
 	 * "documentation" is not really helpful here:
@@ -1262,7 +1267,6 @@ iwm_check_rfkill(struct iwm_softc *sc)
 		sc->sc_flags &= ~IWM_FLAG_RFKILL;
 	}
 
-	splx(s);
 	return rv;
 }
 
@@ -1282,16 +1286,12 @@ iwm_restore_interrupts(struct iwm_softc *sc)
 void
 iwm_disable_interrupts(struct iwm_softc *sc)
 {
-	int s = splnet();
-
 	/* disable interrupts */
 	IWM_WRITE(sc, IWM_CSR_INT_MASK, 0);
 
 	/* acknowledge all interrupts */
 	IWM_WRITE(sc, IWM_CSR_INT, ~0);
 	IWM_WRITE(sc, IWM_CSR_FH_INT_STATUS, ~0);
-
-	splx(s);
 }
 
 void
@@ -2728,7 +2728,7 @@ iwm_firmware_load_chunk(struct iwm_softc *sc, uint32_t dst_addr,
 
 	/* wait 1s for this segment to load */
 	while (!sc->sc_fw_chunk_done)
-		if ((error = tsleep(&sc->sc_fw, 0, "iwmfw", hz)) != 0)
+		if ((error = msleep(&sc->sc_fw, &sc->sc_mtx, 0, "iwmfw", hz)) != 0)
 			break;
 
 	return error;
@@ -2763,7 +2763,7 @@ iwm_load_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 	IWM_WRITE(sc, IWM_CSR_RESET, 0);
 
 	for (w = 0; !sc->sc_uc.uc_intr && w < 10; w++) {
-		error = tsleep(&sc->sc_uc, 0, "iwmuc", hz/10);
+		error = msleep(&sc->sc_uc, &sc->sc_mtx, 0, "iwmuc", hz/10);
 	}
 
 	return error;
@@ -2916,7 +2916,7 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 	 * from the firmware
 	 */
 	while (!sc->sc_init_complete)
-		if ((error = tsleep(&sc->sc_init_complete,
+		if ((error = msleep(&sc->sc_init_complete, &sc->sc_mtx,
 		    0, "iwminit", 2*hz)) != 0)
 			break;
 
@@ -3171,6 +3171,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		/* XXX missing radiotap_rx? */
 	}
 
+	IWM_UNLOCK(sc);
 	if (ni != NULL) {
 		DPRINTFN(10, ("input m %p\n", m));
 		ieee80211_input(ni, m, rssi - sc->sc_noise, sc->sc_noise);
@@ -3180,6 +3181,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		ieee80211_input_all(ic, m, rssi - sc->sc_noise,
 		    sc->sc_noise);
 	}
+	IWM_LOCK(sc);
 }
 
 void
@@ -3447,7 +3449,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	struct iwm_device_cmd *cmd = NULL;
 	bus_addr_t paddr;
 	uint32_t addr_lo;
-	int error = 0, i, paylen, off, s;
+	int error = 0, i, paylen, off;
 	int code;
 	int async, wantresp;
 
@@ -3463,7 +3465,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	if (wantresp) {
 		KASSERT(!async);
 		while (sc->sc_wantresp != -1)
-			tsleep(&sc->sc_wantresp, 0, "iwmcmdsl", 0);
+			msleep(&sc->sc_wantresp, &sc->sc_mtx, 0, "iwmcmdsl", 0);
 		sc->sc_wantresp = ring->qid << 16 | ring->cur;
 		DPRINTFN(12, ("wantresp is %x\n", sc->sc_wantresp));
 	}
@@ -3471,7 +3473,6 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	/*
 	 * Is the hardware still available?  (after e.g. above wait).
 	 */
-	s = splnet();
 	if (sc->sc_flags & IWM_FLAG_STOPPED) {
 		error = ENXIO;
 		goto out;
@@ -3560,7 +3561,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	if (!async) {
 		/* m..m-mmyy-mmyyyy-mym-ym m-my generation */
 		int generation = sc->sc_generation;
-		error = tsleep(desc, PCATCH, "iwmcmd", hz);
+		error = msleep(desc, &sc->sc_mtx, PCATCH, "iwmcmd", hz);
 		if (error == 0) {
 			/* if hardware is no longer up, return error */
 			if (generation != sc->sc_generation) {
@@ -3576,7 +3577,6 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	if (wantresp && error != 0) {
 		iwm_free_resp(sc, hcmd);
 	}
-	splx(s);
 
 	return error;
 }
@@ -3998,7 +3998,7 @@ iwm_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
 		return (ENETDOWN);
         }
 
-	//IWN_LOCK(sc);
+	IWM_LOCK(sc);
         if (params == NULL) {
 		error = iwm_tx(sc, m, ni, 0);
 	} else {
@@ -4010,7 +4010,7 @@ iwm_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 	}
 	sc->sc_tx_timer = 5;
-	//IWN_UNLOCK(sc);
+	IWM_UNLOCK(sc);
 
         return (error);
 }
@@ -5087,21 +5087,7 @@ iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
  * Change to AUTH state in 80211 state machine.  Roughly matches what
  * Linux does in bss_info_changed().
  */
-static void
-iwm_auth_task(void *arg, int pending)
-{
-	struct iwm_softc *sc = arg;
-	struct ieee80211com *ic = sc->sc_ic;
-	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
-	int error;
-
-	if ((error = iwm_auth(vap, sc)) != 0) {
-		DPRINTF(("%s: could not move to auth state: %d\n",
-			DEVNAME(sc), error));
-	}
-}
-
-int
+static int
 iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
 	struct iwm_node *in = (struct iwm_node *)vap->iv_bss;
@@ -5141,7 +5127,7 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 
 	/* a bit superfluous? */
 	while (sc->sc_auth_prot)
-		tsleep(&sc->sc_auth_prot, 0, "iwmauth", hz * 1024);
+		msleep(&sc->sc_auth_prot, &sc->sc_mtx, 0, "iwmauth", 0);
 	sc->sc_auth_prot = 1;
 
 	duration = min(IWM_MVM_TE_SESSION_PROTECTION_MAX_TIME_MS,
@@ -5164,56 +5150,14 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 			sc->sc_auth_prot = 0;
 			return EAUTH;
 		}
-		tsleep(&sc->sc_auth_prot, 0, "iwmau2", hz * 1024);
+		msleep(&sc->sc_auth_prot, &sc->sc_mtx, 0, "iwmau2", 0);
 	}
 	DPRINTFN(10, ("<-%s\n", __func__));
 
 	return 0;
 }
 
-static void
-iwm_run_task(void *arg, int pending)
-{
-	struct iwm_softc *sc = arg;
-	struct ieee80211com *ic = sc->sc_ic;
-	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
-	struct iwm_node *in;
-	int error;
-
-	struct iwm_host_cmd cmd = {
-		.id = IWM_LQ_CMD,
-		.len = { sizeof(in->in_lq), },
-		.flags = IWM_CMD_SYNC,
-	};
-
-	in = (struct iwm_node *)vap->iv_bss;
-	iwm_mvm_power_mac_update_mode(sc, in);
-	iwm_mvm_enable_beacon_filter(sc, in);
-	iwm_mvm_update_quotas(sc, in);
-	iwm_setrates(sc, in);
-
-	cmd.data[0] = &in->in_lq;
-	if ((error = iwm_send_cmd(sc, &cmd)) != 0) {
-		DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
-	}
-}
-
-static void
-iwm_assoc_task(void *arg, int pending)
-{
-	struct iwm_softc *sc = arg;
-	struct ieee80211com *ic = sc->sc_ic;
-	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
-	int error;
-
-	if ((error = iwm_assoc(vap, sc)) != 0) {
-		DPRINTF(("%s: failed to associate: %d\n", DEVNAME(sc),
-			error));
-		return;
-	}
-}
-
-int
+static int
 iwm_assoc(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
 	struct iwm_node *in = (struct iwm_node *)vap->iv_bss;
@@ -5419,12 +5363,16 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	struct ifnet *ifp = ic->ic_ifp;
 	struct iwm_softc *sc = ifp->if_softc;
 	struct iwm_node *in;
+	int error;
+
 #ifdef notyet
 	callout_stop(&sc->sc_calib_to);
 #endif
 
 	DPRINTF(("switching state %d->%d\n", vap->iv_state, nstate));
 
+	IEEE80211_UNLOCK(ic);
+	IWM_LOCK(sc);
 	/* disable beacon filtering if we're hopping out of RUN */
 	if (vap->iv_state == IEEE80211_S_RUN && nstate != vap->iv_state) {
 		iwm_mvm_disable_beacon_filter(sc);
@@ -5449,9 +5397,13 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		    nstate == IEEE80211_S_AUTH ||
 		    nstate == IEEE80211_S_ASSOC) {
 			DPRINTF(("Force transition to INIT; MGT=%d\n", arg));
+			IWM_UNLOCK(sc);
+			IEEE80211_LOCK(ic);
 			vap->iv_newstate(vap, IEEE80211_S_INIT, arg);
 			DPRINTF(("Going INIT->SCAN\n"));
 			nstate = IEEE80211_S_SCAN;
+			IEEE80211_UNLOCK(ic);
+			IWM_UNLOCK(sc);
 		}
 	}
 
@@ -5461,32 +5413,23 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		break;
 
 	case IEEE80211_S_AUTH:
-#ifdef notyet
 		if ((error = iwm_auth(vap, sc)) != 0) {
 			DPRINTF(("%s: could not move to auth state: %d\n",
 			    DEVNAME(sc), error));
 			break;
 		}
-#endif
-		taskqueue_enqueue(sc->sc_tq, &sc->sc_auth_task);
 		break;
 
 	case IEEE80211_S_ASSOC:
-#ifdef notyet
 		if ((error = iwm_assoc(vap, sc)) != 0) {
 			DPRINTF(("%s: failed to associate: %d\n", DEVNAME(sc),
 			    error));
 			break;
 		}
-#endif
-		taskqueue_enqueue(sc->sc_tq, &sc->sc_assoc_task);
 		break;
 
 	case IEEE80211_S_RUN:
 	{
-		taskqueue_enqueue(sc->sc_tq, &sc->sc_run_task);
-		break;
-#ifdef notyet
 		struct iwm_host_cmd cmd = {
 			.id = IWM_LQ_CMD,
 			.len = { sizeof(in->in_lq), },
@@ -5504,6 +5447,7 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
 		}
 
+#ifdef notyet
 		timeout_add_msec(&sc->sc_calib_to, 500);
 #endif
 		break;
@@ -5512,6 +5456,8 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	default:
 		break;
 	}
+	IWM_UNLOCK(sc);
+	IEEE80211_LOCK(ic);
 
 	return (ivp->iv_newstate(vap, nstate, arg));
 }
@@ -5526,6 +5472,7 @@ iwm_endscan_cb(void *arg, int pending)
 
 	DPRINTF(("scan ended\n"));
 
+	IWM_LOCK(sc);
 	if (sc->sc_scanband == IEEE80211_CHAN_2GHZ &&
 	    sc->sc_nvm.sku_cap_band_52GHz_enable) {
 		done = 0;
@@ -5539,10 +5486,12 @@ iwm_endscan_cb(void *arg, int pending)
 	}
 
 	if (done) {
+		IWM_UNLOCK(sc);
 		ieee80211_scan_done(TAILQ_FIRST(&ic->ic_vaps));
+		IWM_LOCK(sc);
 		sc->sc_scanband = 0;
 	}
-
+	IWM_UNLOCK(sc);
 }
 
 int
@@ -5649,10 +5598,19 @@ iwm_allow_mcast(struct ieee80211vap *vap, struct iwm_softc *sc)
  * ifnet interfaces
  */
 
-void
+static void
 iwm_init(void *arg)
 {
 	struct iwm_softc *sc = arg;
+
+	IWM_LOCK(sc);
+	iwm_init_locked(sc);
+	IWM_UNLOCK(sc);
+}
+
+static void
+iwm_init_locked(struct iwm_softc *sc)
+{
 	struct ifnet *ifp = sc->sc_ifp;
 	int error;
 
@@ -5679,8 +5637,18 @@ iwm_init(void *arg)
  * Dequeue packets from sendq and call send.
  * mostly from iwn
  */
-void
+static void
 iwm_start(struct ifnet *ifp)
+{
+	struct iwm_softc *sc = ifp->if_softc;
+
+	IWM_LOCK(sc);
+	iwm_start_locked(ifp);
+	IWM_UNLOCK(sc);
+}
+
+static void
+iwm_start_locked(struct ifnet *ifp)
 {
 	struct iwm_softc *sc = ifp->if_softc;
 	struct ieee80211_node *ni;
@@ -5716,8 +5684,18 @@ iwm_start(struct ifnet *ifp)
 	return;
 }
 
-void
+static void
 iwm_stop(struct ifnet *ifp, int disable)
+{
+	struct iwm_softc *sc = ifp->if_softc;
+
+	IWM_LOCK(sc);
+	iwm_stop_locked(ifp);
+	IWM_UNLOCK(sc);
+}
+
+static void
+iwm_stop_locked(struct ifnet *ifp)
 {
 	struct iwm_softc *sc = ifp->if_softc;
 
@@ -5770,7 +5748,7 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
 	struct iwm_softc *sc = ifp->if_softc;
 	struct ieee80211com *ic = sc->sc_ic;
         struct ifreq *ifr = (struct ifreq *) data;
-	int error = 0;
+	int error = 0, startall = 0;
 
 	switch (cmd) {
 	case SIOCGIFADDR:
@@ -5780,15 +5758,20 @@ iwm_ioctl(struct ifnet *ifp, u_long cmd, iwm_caddr_t data)
                 error = ifmedia_ioctl(ifp, ifr, &ic->ic_media, cmd);
                 break;
 	case SIOCSIFFLAGS:
+		IWM_LOCK(sc);
 		if (ifp->if_flags & IFF_UP) {
 			if (!(ifp->if_drv_flags & IFF_DRV_RUNNING)) {
-				iwm_init(sc);
-				ieee80211_start_all(ic);
+				iwm_init_locked(sc);
+				startall = 1;
 			}
 		} else {
 			if (ifp->if_drv_flags & IFF_DRV_RUNNING)
-				iwm_stop(ifp, 1);
+				iwm_stop_locked(ifp);
 		}
+		IWM_UNLOCK(sc);
+		if (startall)
+			ieee80211_start_all(ic);
+
 		break;
 	default:
 		error = EINVAL;
@@ -6202,6 +6185,7 @@ iwm_intr(void *arg)
 	int r1, r2, rv = 0;
 	int isperiodic = 0;
 
+	IWM_LOCK(sc);
 	IWM_WRITE(sc, IWM_CSR_INT_MASK, 0);
 
 	if (sc->sc_flags & IWM_FLAG_USE_ICT) {
@@ -6253,7 +6237,6 @@ iwm_intr(void *arg)
 		struct ieee80211com *ic = sc->sc_ic;
 		struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 
-
 		iwm_nic_error(sc);
 
 		/* Dump driver status (TX and RX rings) while we're here. */
@@ -6270,7 +6253,7 @@ iwm_intr(void *arg)
 
 		printf("%s: fatal firmware error\n", DEVNAME(sc));
 		ifp->if_flags &= ~IFF_UP;
-		iwm_stop(ifp, 1);
+		iwm_stop_locked(ifp);
 		rv = 1;
 		goto out;
 
@@ -6280,7 +6263,7 @@ iwm_intr(void *arg)
 		handled |= IWM_CSR_INT_BIT_HW_ERR;
 		printf("%s: hardware error, stopping device \n", DEVNAME(sc));
 		ifp->if_flags &= ~IFF_UP;
-		iwm_stop(ifp, 1);
+		iwm_stop_locked(ifp);
 		rv = 1;
 		goto out;
 	}
@@ -6289,7 +6272,6 @@ iwm_intr(void *arg)
 	if (r1 & IWM_CSR_INT_BIT_FH_TX) {
 		IWM_WRITE(sc, IWM_CSR_FH_INT_STATUS, IWM_CSR_FH_INT_TX_MASK);
 		handled |= IWM_CSR_INT_BIT_FH_TX;
-
 		sc->sc_fw_chunk_done = 1;
 		wakeup(&sc->sc_fw);
 	}
@@ -6300,7 +6282,7 @@ iwm_intr(void *arg)
 			DPRINTF(("%s: rfkill switch, disabling interface\n",
 			    DEVNAME(sc)));
 			ifp->if_flags &= ~IFF_UP;
-			iwm_stop(ifp, 1);
+			iwm_stop_locked(ifp);
 		}
 	}
 
@@ -6336,6 +6318,7 @@ iwm_intr(void *arg)
  out_ena:
 	iwm_restore_interrupts(sc);
  out:
+	IWM_UNLOCK(sc);
 	return;
 }
 
@@ -6447,7 +6430,9 @@ iwm_attach_hook(iwm_hookarg_t arg)
 
 	KASSERT(!cold);
 
+	IWM_LOCK(sc);
 	iwm_preinit(sc);
+	IWM_UNLOCK(sc);
 }
 
 int
@@ -6462,11 +6447,8 @@ iwm_attach(device_t dev)
 
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
-
+	mtx_init(&sc->sc_mtx, "iwm_mtx", MTX_DEF, 0);
 	TASK_INIT(&sc->sc_es_task, 0, iwm_endscan_cb, sc);
-	TASK_INIT(&sc->sc_auth_task, 0, iwm_auth_task, sc);
-	TASK_INIT(&sc->sc_assoc_task, 0, iwm_assoc_task, sc);
-	TASK_INIT(&sc->sc_run_task, 0, iwm_run_task, sc);
 	sc->sc_tq = taskqueue_create("iwm_taskq", M_WAITOK,
             taskqueue_thread_enqueue, &sc->sc_tq);
         error = taskqueue_start_threads(&sc->sc_tq, 1, 0, "iwm_taskq");
@@ -6732,11 +6714,14 @@ iwm_scan_start(struct ieee80211com *ic)
 
 	if (sc->sc_scanband)
 		return;
+	IWM_LOCK(sc);
 	error = iwm_mvm_scan_request(sc, IEEE80211_CHAN_2GHZ, 0, NULL, 0);
 	if (error) {
 		printf("%s: could not initiate scan\n", DEVNAME(sc));
+		IWM_UNLOCK(sc);
 		ieee80211_cancel_scan(vap);
-	}
+	} else
+		IWM_UNLOCK(sc);
 }
 
 static void
@@ -6747,7 +6732,6 @@ iwm_scan_end(struct ieee80211com *ic)
 static void
 iwm_set_channel(struct ieee80211com *ic)
 {
-	return;
 }
 
 static void
@@ -6766,21 +6750,18 @@ iwm_init_task(void *arg1)
 {
 	struct iwm_softc *sc = arg1;
 	struct ifnet *ifp = sc->sc_ifp;
-	int s;
 
-	s = splnet();
+	IWM_LOCK(sc);
 	while (sc->sc_flags & IWM_FLAG_BUSY)
-		tsleep(&sc->sc_flags, 0, "iwmpwr", 0);
+		msleep(&sc->sc_flags, &sc->sc_mtx, 0, "iwmpwr", 0);
 	sc->sc_flags |= IWM_FLAG_BUSY;
-
-	iwm_stop(ifp, 0);
+	iwm_stop_locked(ifp);
 	if ((ifp->if_flags & IFF_UP) &&
 	    (ifp->if_drv_flags & IFF_DRV_RUNNING))
 		iwm_init(sc);
-
 	sc->sc_flags &= ~IWM_FLAG_BUSY;
 	wakeup(&sc->sc_flags);
-	splx(s);
+	IWM_UNLOCK(sc);
 }
 
 static int
@@ -6817,10 +6798,10 @@ iwm_detach(device_t dev)
 
 	if (fw->fw_rawdata != NULL)
 		iwm_fw_info_free(fw);
-
-	taskqueue_drain_all(sc->sc_tq);
-	taskqueue_free(sc->sc_tq);
-
+	if (sc->sc_tq) {
+		taskqueue_drain_all(sc->sc_tq);
+		taskqueue_free(sc->sc_tq);
+	}
 	if (ifp) {
 		ic = ifp->if_l2com;
 		iwm_stop_device(sc);
