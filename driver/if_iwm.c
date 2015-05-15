@@ -3999,6 +3999,7 @@ iwm_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
         }
 
 	IWM_LOCK(sc);
+	/* XXX fix this */
         if (params == NULL) {
 		error = iwm_tx(sc, m, ni, 0);
 	} else {
@@ -5331,9 +5332,6 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 		KASSERT(tab != 0);
 		lq->rs_table[i] = htole32(tab);
 	}
-
-	/* Start at lowest available bit-rate, AMRR will raise. */
-	ni->ni_txrate = 0;
 }
 
 int
