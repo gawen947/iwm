@@ -3255,7 +3255,7 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 			 * I guess net80211 does all sorts of stunts in
 			 * interrupt context, so maybe this is no biggie.
 			 */
-			(*ifp->if_start)(ifp);
+			iwm_start_locked(ifp);
 		}
 	}
 }
