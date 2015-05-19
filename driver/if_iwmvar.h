@@ -385,9 +385,8 @@ struct iwm_softc {
 	uint8_t sc_bssid[IEEE80211_ADDR_LEN];
 
 	struct mtx sc_mtx;
-#ifdef notyet
-	struct timeout sc_calib_to;
-#endif
+	struct callout sc_calib_to;
+	struct callout sc_watchdog_to;
 
 	struct task		init_task;
 

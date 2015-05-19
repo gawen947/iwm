@@ -11,5 +11,5 @@ sudo kldload driver/if_iwm.ko
 sudo wlandebug -d 0xffffffff
 sudo ifconfig wlan0 create wlandev iwm0
 sudo wlandebug -d 0
-sudo ifconfig wlan0 up channel 2
+sudo ifconfig wlan0 up channel 3
 sudo wpa_supplicant -c /etc/wpa_supplicant.conf -i wlan0 -B

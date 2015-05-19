@@ -426,7 +426,7 @@ static void	iwm_start(struct ifnet *);
 static void	iwm_start_locked(struct ifnet *);
 static void	iwm_stop(struct ifnet *, int);
 static void	iwm_stop_locked(struct ifnet *);
-void	iwm_watchdog(struct ifnet *);
+void	iwm_watchdog(void *);
 int	iwm_ioctl(struct ifnet *, u_long, iwm_caddr_t);
 const char *iwm_desc_lookup(uint32_t);
 #ifdef IWM_DEBUG
@@ -5629,6 +5629,7 @@ iwm_init_locked(struct iwm_softc *sc)
 	ifp->if_drv_flags &= ~IFF_DRV_OACTIVE;
 	ifp->if_drv_flags |= IFF_DRV_RUNNING;
 	sc->sc_flags |= IWM_FLAG_HW_INITED;
+	callout_reset(&sc->sc_watchdog_to, hz, iwm_watchdog, sc);
 }
 
 /*
@@ -5705,9 +5706,6 @@ iwm_stop_locked(struct ifnet *ifp)
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
 
 #ifdef notyet
-	if (ic->ic_state != IEEE80211_S_INIT)
-		ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
-
 	timeout_del(&sc->sc_calib_to);
 #endif
 	sc->sc_tx_timer = 0;
@@ -5716,12 +5714,12 @@ iwm_stop_locked(struct ifnet *ifp)
 }
 
 void
-iwm_watchdog(struct ifnet *ifp)
+iwm_watchdog(void *arg)
 {
-#ifdef notyet
-	struct iwm_softc *sc = ifp->if_softc;
+	struct iwm_softc *sc = arg;
+	struct ifnet *ifp = sc->sc_ifp;
 
-	ifp->if_timer = 0;
+	KASSERT(ifp->if_drv_flags & IFF_DRV_RUNNING);
 	if (sc->sc_tx_timer > 0) {
 		if (--sc->sc_tx_timer == 0) {
 			printf("%s: device timeout\n", DEVNAME(sc));
@@ -5733,11 +5731,8 @@ iwm_watchdog(struct ifnet *ifp)
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			return;
 		}
-		ifp->if_timer = 1;
 	}
-
-	ieee80211_watchdog(ifp);
-#endif
+	callout_reset(&sc->sc_watchdog_to, hz, iwm_watchdog, sc);
 }
 
 int
@@ -6446,6 +6441,7 @@ iwm_attach(device_t dev)
 	sc = device_get_softc(dev);
 	sc->sc_dev = dev;
 	mtx_init(&sc->sc_mtx, "iwm_mtx", MTX_DEF, 0);
+	callout_init_mtx(&sc->sc_watchdog_to, &sc->sc_mtx, 0);
 	TASK_INIT(&sc->sc_es_task, 0, iwm_endscan_cb, sc);
 	sc->sc_tq = taskqueue_create("iwm_taskq", M_WAITOK,
             taskqueue_thread_enqueue, &sc->sc_tq);
@@ -6801,6 +6797,7 @@ iwm_detach(device_t dev)
 		taskqueue_free(sc->sc_tq);
 	}
 	if (ifp) {
+		callout_drain(&sc->sc_watchdog_to);
 		ic = ifp->if_l2com;
 		iwm_stop_device(sc);
 		if (ic)
