@@ -4931,9 +4931,7 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 		tsf = ni->ni_tstamp.tsf;
 
 		ctxt_sta->dtim_tsf = htole64(tsf + dtim_offs);
-#ifdef notyet
-		ctxt_sta->dtim_time = htole64(ni->ni_rstamp + dtim_offs);
-#endif
+		ctxt_sta->dtim_time = htole64(ni->ni_tstamp.tsf + dtim_offs);
 
 		DPRINTF(("DTIM TBTT is 0x%llx/0x%x, offset %d\n",
 		    (long long)le64toh(ctxt_sta->dtim_tsf),
