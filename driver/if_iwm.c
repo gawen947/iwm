@@ -156,7 +156,6 @@ __FBSDID("$FreeBSD$");
 #define le16_to_cpup(_a_) (le16toh(*(const uint16_t *)(_a_)))
 #define le32_to_cpup(_a_) (le32toh(*(const uint32_t *)(_a_)))
 
-#define IWM_DEBUG
 #ifdef IWM_DEBUG
 #define DPRINTF(x)	do { if (iwm_debug > 0) printf x; } while (0)
 #define DPRINTFN(n, x)	do { if (iwm_debug >= (n)) printf x; } while (0)
@@ -211,7 +210,9 @@ static void	iwm_fw_info_free(struct iwm_fw_info *);
 static int	iwm_read_firmware(struct iwm_softc *, enum iwm_ucode_type);
 static uint32_t	iwm_read_prph(struct iwm_softc *, uint32_t);
 static void	iwm_write_prph(struct iwm_softc *, uint32_t, uint32_t);
+#ifdef IWM_DEBUG
 static int	iwm_read_mem(struct iwm_softc *, uint32_t, void *, int);
+#endif
 static int	iwm_write_mem(struct iwm_softc *, uint32_t, const void *, int);
 static int	iwm_write_mem32(struct iwm_softc *, uint32_t, uint32_t);
 static int	iwm_poll_bit(struct iwm_softc *, int, uint32_t, uint32_t, int);
@@ -457,8 +458,9 @@ static void	iwm_stop(struct ifnet *, int);
 static void	iwm_stop_locked(struct ifnet *);
 static void	iwm_watchdog(void *);
 static int	iwm_ioctl(struct ifnet *, u_long, iwm_caddr_t);
-static const char *iwm_desc_lookup(uint32_t);
 #ifdef IWM_DEBUG
+static const char *
+		iwm_desc_lookup(uint32_t);
 static void	iwm_nic_error(struct iwm_softc *);
 #endif
 static void	iwm_notif_intr(struct iwm_softc *);
@@ -795,6 +797,7 @@ iwm_write_prph(struct iwm_softc *sc, uint32_t addr, uint32_t val)
 	IWM_WRITE(sc, IWM_HBUS_TARG_PRPH_WDAT, val);
 }
 
+#ifdef IWM_DEBUG
 /* iwlwifi: pcie/trans.c */
 static int
 iwm_read_mem(struct iwm_softc *sc, uint32_t addr, void *buf, int dwords)
@@ -812,6 +815,7 @@ iwm_read_mem(struct iwm_softc *sc, uint32_t addr, void *buf, int dwords)
 	}
 	return ret;
 }
+#endif
 
 /* iwlwifi: pcie/trans.c */
 static int
@@ -5834,6 +5838,7 @@ struct iwm_error_event_table {
 #define ERROR_START_OFFSET  (1 * sizeof(uint32_t))
 #define ERROR_ELEM_SIZE     (7 * sizeof(uint32_t))
 
+#ifdef IWM_DEBUG
 struct {
 	const char *name;
 	uint8_t num;
@@ -5869,7 +5874,6 @@ iwm_desc_lookup(uint32_t num)
 	return advanced_lookup[i].name;
 }
 
-#ifdef IWM_DEBUG
 /*
  * Support for dumping the error log seemed like a good idea ...
  * but it's mostly hex junk and the only sensible thing is the
@@ -6589,10 +6593,11 @@ iwm_attach(device_t dev)
 	IWM_LOCK(sc);
 	iwm_preinit(sc);
 	IWM_UNLOCK(sc);
+#ifdef IWM_DEBUG
 	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO, "debug",
 	    CTLFLAG_RW, &iwm_debug, iwm_debug, "control debugging");
-
+#endif
 	return 0;
 
 	/* Free allocated memory if something failed during attachment. */
