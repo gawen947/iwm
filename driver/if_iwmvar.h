@@ -385,7 +385,6 @@ struct iwm_softc {
 	uint8_t sc_bssid[IEEE80211_ADDR_LEN];
 
 	struct mtx sc_mtx;
-	struct callout sc_calib_to;
 	struct callout sc_watchdog_to;
 
 	struct task		init_task;
@@ -473,9 +472,6 @@ struct iwm_softc {
 
 	struct taskqueue *sc_tq;
 	struct task sc_es_task;
-	struct task sc_auth_task;
-	struct task sc_assoc_task;
-	struct task sc_run_task;
 
 	struct iwm_rx_phy_info sc_last_phy_info;
 	int sc_ampdu_ref;

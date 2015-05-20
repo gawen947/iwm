@@ -444,8 +444,6 @@ static int	iwm_release(struct iwm_softc *, struct iwm_node *);
 static struct ieee80211_node *
 		iwm_node_alloc(struct ieee80211vap *,
 		               const uint8_t[IEEE80211_ADDR_LEN]);
-
-static void	iwm_calib_timeout(void *);
 static void	iwm_setrates(struct iwm_softc *, struct iwm_node *);
 static int	iwm_media_change(struct ifnet *);
 static int	iwm_newstate(struct ieee80211vap *, enum ieee80211_state, int);
@@ -3200,7 +3198,6 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		/* Unknown rate: should not happen. */
 		default:  tap->wr_rate =   0;
 		}
-		/* XXX missing radiotap_rx? */
 	}
 
 	IWM_UNLOCK(sc);
@@ -5275,24 +5272,6 @@ iwm_node_alloc(struct ieee80211vap *vap, const uint8_t mac[IEEE80211_ADDR_LEN])
 }
 
 static void
-iwm_calib_timeout(void *arg)
-{
-#ifdef notyet
-	struct iwm_softc *sc = arg;
-	struct ieee80211com *ic = sc->sc_ic;
-
-	if (ic->ic_fixed_rate == -1
-	    && ic->ic_opmode == IEEE80211_M_STA
-	    && ic->ic_bss) {
-		struct iwm_node *in = (void *)ic->ic_bss;
-		ieee80211_amrr_choose(&sc->sc_amrr, &in->in_ni, &in->in_amn);
-	}
-
-	timeout_add_msec(&sc->sc_calib_to, 500);
-#endif
-}
-
-static void
 iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 {
 	struct ieee80211_node *ni = &in->in_ni;
@@ -5394,12 +5373,7 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	struct iwm_node *in;
 	int error;
 
-#ifdef notyet
-	callout_stop(&sc->sc_calib_to);
-#endif
-
 	DPRINTF(("switching state %d->%d\n", vap->iv_state, nstate));
-
 	IEEE80211_UNLOCK(ic);
 	IWM_LOCK(sc);
 	/* disable beacon filtering if we're hopping out of RUN */
@@ -5475,10 +5449,6 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 		if ((error = iwm_send_cmd(sc, &cmd)) != 0) {
 			DPRINTF(("%s: IWM_LQ_CMD failed\n", DEVNAME(sc)));
 		}
-
-#ifdef notyet
-		timeout_add_msec(&sc->sc_calib_to, 500);
-#endif
 		break;
 	}
 
@@ -5735,12 +5705,7 @@ iwm_stop_locked(struct ifnet *ifp)
 	sc->sc_scanband = 0;
 	sc->sc_auth_prot = 0;
 	ifp->if_drv_flags &= ~(IFF_DRV_RUNNING | IFF_DRV_OACTIVE);
-
-#ifdef notyet
-	timeout_del(&sc->sc_calib_to);
-#endif
 	sc->sc_tx_timer = 0;
-
 	iwm_stop_device(sc);
 }
 
@@ -6621,11 +6586,6 @@ iwm_attach(device_t dev)
 
 	/* Max RSSI */
 	sc->sc_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
-
-
-#ifdef notyet
-	timeout_set(&sc->sc_calib_to, iwm_calib_timeout, sc);
-#endif
 	IWM_LOCK(sc);
 	iwm_preinit(sc);
 	IWM_UNLOCK(sc);
@@ -6779,7 +6739,6 @@ iwm_resume(device_t dev)
 	/* Clear device-specific "PCI retry timeout" register (41h). */
 	reg = pci_read_config(dev, 0x40, sizeof(reg));
 	pci_write_config(dev, 0x40, reg & ~0xff00, sizeof(reg));
-
 	iwm_init_task(device_get_softc(dev));
 
 	return 0;
