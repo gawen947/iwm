@@ -482,6 +482,7 @@ static struct ieee80211vap *
 static void	iwm_vap_delete(struct ieee80211vap *);
 static void	iwm_scan_start(struct ieee80211com *);
 static void	iwm_scan_end(struct ieee80211com *);
+static void	iwm_update_mcast(struct ifnet *);
 static void	iwm_set_channel(struct ieee80211com *);
 static void	iwm_scan_curchan(struct ieee80211_scan_state *, unsigned long);
 static void	iwm_scan_mindwell(struct ieee80211_scan_state *);
@@ -6434,9 +6435,7 @@ iwm_preinit(struct iwm_softc *sc)
 	ic->ic_node_alloc = iwm_node_alloc;
 	ic->ic_scan_start = iwm_scan_start;
 	ic->ic_scan_end = iwm_scan_end;
-#ifdef notyet
 	ic->ic_update_mcast = iwm_update_mcast;
-#endif
 	ic->ic_set_channel = iwm_set_channel;
 	ic->ic_scan_curchan = iwm_scan_curchan;
 	ic->ic_scan_mindwell = iwm_scan_mindwell;
@@ -6731,6 +6730,11 @@ iwm_scan_start(struct ieee80211com *ic)
 
 static void
 iwm_scan_end(struct ieee80211com *ic)
+{
+}
+
+static void
+iwm_update_mcast(struct ifnet *ifp)
 {
 }
 
