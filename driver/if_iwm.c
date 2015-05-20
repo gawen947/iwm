@@ -169,10 +169,6 @@ int iwm_debug = 20;
 #include <if_iwmreg.h>
 #include <if_iwmvar.h>
 
-/* XXX */
-#undef KASSERT
-#define KASSERT(exp)	if (!(exp)) panic("kassert %s:%d\n", __func__, __LINE__);
-
 const uint8_t iwm_nvm_channels[] = {
 	/* 2.4 GHz */
 	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
@@ -754,7 +750,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 		data += roundup(tlv_len, 4);
 	}
 
-	KASSERT(error == 0);
+	KASSERT(error == 0, ("unhandled error"));
 
  parse_out:
 	if (error) {
@@ -928,8 +924,7 @@ iwm_dma_map_addr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 	DPRINTFN(20, ("%s error=%d nsegs=%d\n", __func__, error, nsegs));
         if (error != 0)
                 return;
-//        KASSERT(nsegs == 1, ("too many DMA segments, %d should be 1", nsegs));
-//	KASSERT(nsegs == 1);
+//	KASSERT(nsegs == 1, ("too many DMA segments, %d should be 1", nsegs));
 #ifdef IWM_DEBUG
 	for (int i = 0; i < nsegs; i++)
 		DPRINTFN(20, ("%s addr 0x%lx len 0x%lx\n", __func__,
@@ -1211,7 +1206,8 @@ iwm_alloc_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring, int qid)
 			goto fail;
 		}
 	}
-	KASSERT(paddr == ring->cmd_dma.paddr + size);
+	KASSERT(paddr == ring->cmd_dma.paddr + size,
+	    ("invalid physical address"));
 	return 0;
 
 fail:	iwm_free_tx_ring(sc, ring);
@@ -2702,7 +2698,8 @@ iwm_nvm_init(struct iwm_softc *sc)
 	nvm_buffer = malloc(IWM_OTP_LOW_IMAGE_SIZE, M_DEVBUF, M_WAITOK);
 	for (i = 0; i < nitems(nvm_to_read); i++) {
 		section = nvm_to_read[i];
-		KASSERT(section <= nitems(nvm_sections));
+		KASSERT(section <= nitems(nvm_sections),
+		    ("too many sections"));
 
 		error = iwm_nvm_read_section(sc, section, nvm_buffer, &len);
 		if (error)
@@ -3228,7 +3225,7 @@ iwm_mvm_rx_tx_cmd_single(struct iwm_softc *sc, struct iwm_rx_packet *pkt,
 	int status = le16toh(tx_resp->status.status) & IWM_TX_STATUS_MSK;
 	int failack = tx_resp->failure_frame;
 
-	KASSERT(tx_resp->frame_count == 1);
+	KASSERT(tx_resp->frame_count == 1, ("too many frames"));
 
 	/* Update rate control statistics. */
 	if (status != IWM_TX_STATUS_SUCCESS &&
@@ -3273,9 +3270,9 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 	m_freem(txd->m);
 
 	DPRINTFN(8, ("free txd %p, in %p\n", txd, txd->in));
-	KASSERT(txd->done == 0);
+	KASSERT(txd->done == 0, ("txd not done"));
 	txd->done = 1;
-	KASSERT(txd->in);
+	KASSERT(txd->in, ("txd without node"));
 
 	txd->m = NULL;
 	txd->in = NULL;
@@ -3498,7 +3495,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 
 	/* if the command wants an answer, busy sc_cmd_resp */
 	if (wantresp) {
-		KASSERT(!async);
+		KASSERT(!async, ("invalid async parameter"));
 		while (sc->sc_wantresp != -1)
 			msleep(&sc->sc_wantresp, &sc->sc_mtx, 0, "iwmcmdsl", 0);
 		sc->sc_wantresp = ring->qid << 16 | ring->cur;
@@ -3549,7 +3546,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 		memcpy(cmd->data + off, hcmd->data[i], hcmd->len[i]);
 		off += hcmd->len[i];
 	}
-	KASSERT(off == paylen);
+	KASSERT(off == paylen, ("off %d != paylen %d", off, paylen));
 
 	/* lo field is not aligned */
 	addr_lo = htole32((uint32_t)paddr);
@@ -3640,7 +3637,8 @@ iwm_mvm_send_cmd_status(struct iwm_softc *sc,
 	struct iwm_cmd_response *resp;
 	int error, resp_len;
 
-	KASSERT((cmd->flags & IWM_CMD_WANT_SKB) == 0);
+	KASSERT((cmd->flags & IWM_CMD_WANT_SKB) == 0,
+	    ("invalid command"));
 	cmd->flags |= IWM_CMD_SYNC | IWM_CMD_WANT_SKB;
 
 	if ((error = iwm_send_cmd(sc, cmd)) != 0)
@@ -3688,9 +3686,9 @@ iwm_mvm_send_cmd_pdu_status(struct iwm_softc *sc, uint8_t id,
 static void
 iwm_free_resp(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 {
-	KASSERT(sc->sc_wantresp != -1);
+	KASSERT(sc->sc_wantresp != -1, ("already freed"));
 	KASSERT((hcmd->flags & (IWM_CMD_WANT_SKB|IWM_CMD_SYNC))
-	    == (IWM_CMD_WANT_SKB|IWM_CMD_SYNC));
+	    == (IWM_CMD_WANT_SKB|IWM_CMD_SYNC), ("invalid flags"));
 	sc->sc_wantresp = -1;
 	wakeup(&sc->sc_wantresp);
 }
@@ -3967,7 +3965,7 @@ iwm_tx(struct iwm_softc *sc, struct mbuf *m, struct ieee80211_node *ni, int ac)
 	data->done = 0;
 
 	DPRINTFN(8, ("sending txd %p, in %p\n", data, data->in));
-	KASSERT(data->in != NULL);
+	KASSERT(data->in != NULL, ("node is NULL"));
 
 	DPRINTFN(8, ("sending data: qid=%d idx=%d len=%d nsegs=%d\n",
 	    ring->qid, ring->cur, totlen, nsegs));
@@ -4151,7 +4149,7 @@ iwm_mvm_power_log(struct iwm_softc *sc, struct iwm_mac_power_cmd *cmd)
 		DPRINTF(("Disable power management\n"));
 		return;
 	}
-	KASSERT(0);
+	KASSERT(0, ("unhandled power management"));
 
 #if 0
 	DPRINTF(mvm, "Rx timeout = %u usec\n",
@@ -5057,7 +5055,7 @@ iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
 	/* currently, PHY ID == binding ID */
 	if (in) {
 		id = in->in_phyctxt->id;
-		KASSERT(id < IWM_MAX_BINDINGS);
+		KASSERT(id < IWM_MAX_BINDINGS, ("invalid id"));
 		colors[id] = in->in_phyctxt->color;
 
 		if (1)
@@ -5362,7 +5360,7 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 	}
 	/* then fill the rest with the lowest possible rate */
 	for (i = nrates; i < nitems(lq->rs_table); i++) {
-		KASSERT(tab != 0);
+		KASSERT(tab != 0, ("invalid tab"));
 		lq->rs_table[i] = htole32(tab);
 	}
 }
@@ -5752,7 +5750,7 @@ iwm_watchdog(void *arg)
 	struct iwm_softc *sc = arg;
 	struct ifnet *ifp = sc->sc_ifp;
 
-	KASSERT(ifp->if_drv_flags & IFF_DRV_RUNNING);
+	KASSERT(ifp->if_drv_flags & IFF_DRV_RUNNING, ("not running"));
 	if (sc->sc_tx_timer > 0) {
 		if (--sc->sc_tx_timer == 0) {
 			printf("%s: device timeout\n", DEVNAME(sc));
