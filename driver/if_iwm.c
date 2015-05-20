@@ -470,7 +470,6 @@ static void	iwm_nic_error(struct iwm_softc *);
 static void	iwm_notif_intr(struct iwm_softc *);
 static void	iwm_intr(void *);
 static int	iwm_preinit(struct iwm_softc *);
-static void	iwm_attach_hook(iwm_hookarg_t);
 static int	iwm_attach(device_t);
 static void	iwm_init_task(void *);
 static void	iwm_radiotap_attach(struct iwm_softc *);
@@ -6451,18 +6450,6 @@ iwm_preinit(struct iwm_softc *sc)
 	return 0;
 }
 
-static void
-iwm_attach_hook(iwm_hookarg_t arg)
-{
-	struct iwm_softc *sc = arg;
-
-	KASSERT(!cold);
-
-	IWM_LOCK(sc);
-	iwm_preinit(sc);
-	IWM_UNLOCK(sc);
-}
-
 static int
 iwm_attach(device_t dev)
 {
@@ -6644,18 +6631,9 @@ iwm_attach(device_t dev)
 #ifdef notyet
 	timeout_set(&sc->sc_calib_to, iwm_calib_timeout, sc);
 #endif
-
-#ifdef notyet
-	/*
-	 * We cannot read the MAC address without loading the
-	 * firmware from disk. Postpone until mountroot is done.
-	 */
-	if (rootvp == NULL)
-		mountroothook_establish(iwm_attach_hook, sc);
-	else
-#endif
-		iwm_attach_hook(sc);
-
+	IWM_LOCK(sc);
+	iwm_preinit(sc);
+	IWM_UNLOCK(sc);
 	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO, "debug",
 	    CTLFLAG_RW, &iwm_debug, iwm_debug, "control debugging");
