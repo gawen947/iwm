@@ -5510,9 +5510,6 @@ iwm_init_hw(struct iwm_softc *sc)
 	struct ieee80211com *ic = sc->sc_ic;
 	int error, i, qid;
 
-	if ((error = iwm_prepare_card_hw(sc)) != 0)
-		return error;
-
 	if ((error = iwm_start_hw(sc)) != 0)
 		return error;
 
