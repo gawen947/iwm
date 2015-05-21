@@ -5410,7 +5410,7 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			DPRINTF(("Going INIT->SCAN\n"));
 			nstate = IEEE80211_S_SCAN;
 			IEEE80211_UNLOCK(ic);
-			IWM_UNLOCK(sc);
+			IWM_LOCK(sc);
 		}
 	}
 
