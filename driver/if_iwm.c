@@ -5624,7 +5624,7 @@ iwm_init_locked(struct iwm_softc *sc)
 	sc->sc_flags &= ~IWM_FLAG_STOPPED;
 
 	if ((error = iwm_init_hw(sc)) != 0) {
-		iwm_stop(ifp, 1);
+		iwm_stop_locked(ifp);
 		return;
 	}
 
@@ -6803,7 +6803,6 @@ static device_method_t iwm_pci_methods[] = {
         DEVMETHOD(device_probe,         iwm_probe),
         DEVMETHOD(device_attach,        iwm_attach),
         DEVMETHOD(device_detach,        iwm_detach),
-//        DEVMETHOD(device_shutdown,      iwm_shutdown),
         DEVMETHOD(device_suspend,       iwm_suspend),
         DEVMETHOD(device_resume,        iwm_resume),
 
