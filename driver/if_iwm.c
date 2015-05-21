@@ -465,7 +465,7 @@ static void	iwm_nic_error(struct iwm_softc *);
 #endif
 static void	iwm_notif_intr(struct iwm_softc *);
 static void	iwm_intr(void *);
-static int	iwm_preinit(struct iwm_softc *);
+static int	iwm_preinit_locked(struct iwm_softc *);
 static int	iwm_attach(device_t);
 static void	iwm_init_task(void *);
 static void	iwm_radiotap_attach(struct iwm_softc *);
@@ -5503,7 +5503,7 @@ iwm_init_hw(struct iwm_softc *sc)
 	struct ieee80211com *ic = sc->sc_ic;
 	int error, i, qid;
 
-	if ((error = iwm_preinit(sc)) != 0)
+	if ((error = iwm_preinit_locked(sc)) != 0)
 		return error;
 
 	if ((error = iwm_start_hw(sc)) != 0)
@@ -6354,7 +6354,7 @@ iwm_probe(device_t dev)
 }
 
 static int
-iwm_preinit(struct iwm_softc *sc)
+iwm_preinit_locked(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = sc->sc_ic;
 	int error;
@@ -6395,7 +6395,9 @@ iwm_preinit(struct iwm_softc *sc)
 		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
 
+	IWM_UNLOCK(sc);
 	ieee80211_ifattach(ic, sc->sc_bssid);
+	IWM_LOCK(sc);
 	ic->ic_vap_create = iwm_vap_create;
 	ic->ic_vap_delete = iwm_vap_delete;
 	ic->ic_raw_xmit = iwm_raw_xmit;
@@ -6591,7 +6593,7 @@ iwm_attach(device_t dev)
 	/* Max RSSI */
 	sc->sc_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
 	IWM_LOCK(sc);
-	iwm_preinit(sc);
+	iwm_preinit_locked(sc);
 	IWM_UNLOCK(sc);
 #ifdef IWM_DEBUG
 	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
