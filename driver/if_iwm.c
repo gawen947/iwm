@@ -2697,7 +2697,9 @@ iwm_nvm_init(struct iwm_softc *sc)
 	DPRINTF(("Read NVM\n"));
 
 	/* TODO: find correct NVM max size for a section */
-	nvm_buffer = malloc(IWM_OTP_LOW_IMAGE_SIZE, M_DEVBUF, M_WAITOK);
+	nvm_buffer = malloc(IWM_OTP_LOW_IMAGE_SIZE, M_DEVBUF, M_NOWAIT);
+	if (nvm_buffer == NULL)
+		return (ENOMEM);
 	for (i = 0; i < nitems(nvm_to_read); i++) {
 		section = nvm_to_read[i];
 		KASSERT(section <= nitems(nvm_sections),
@@ -2707,7 +2709,11 @@ iwm_nvm_init(struct iwm_softc *sc)
 		if (error)
 			break;
 
-		temp = malloc(len, M_DEVBUF, M_WAITOK);
+		temp = malloc(len, M_DEVBUF, M_NOWAIT);
+		if (temp == NULL) {
+			error = ENOMEM;
+			break;
+		}
 		memcpy(temp, nvm_buffer, len);
 		nvm_sections[section].data = temp;
 		nvm_sections[section].length = len;
@@ -2926,7 +2932,9 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 		    + IWM_MAX_NUM_SCAN_CHANNELS
 		    * sizeof(struct iwm_scan_channel);
 		sc->sc_scan_cmd = malloc(sc->sc_scan_cmd_len, M_DEVBUF,
-		    M_WAITOK);
+		    M_NOWAIT);
+		if (sc->sc_scan_cmd == NULL)
+			return (ENOMEM);
 
 		return 0;
 	}
