@@ -465,7 +465,6 @@ static void	iwm_nic_error(struct iwm_softc *);
 #endif
 static void	iwm_notif_intr(struct iwm_softc *);
 static void	iwm_intr(void *);
-static int	iwm_preinit_locked(struct iwm_softc *);
 static int	iwm_attach(device_t);
 static void	iwm_init_task(void *);
 static void	iwm_radiotap_attach(struct iwm_softc *);
@@ -5511,7 +5510,7 @@ iwm_init_hw(struct iwm_softc *sc)
 	struct ieee80211com *ic = sc->sc_ic;
 	int error, i, qid;
 
-	if ((error = iwm_preinit_locked(sc)) != 0)
+	if ((error = iwm_prepare_card_hw(sc)) != 0)
 		return error;
 
 	if ((error = iwm_start_hw(sc)) != 0)
@@ -6362,69 +6361,6 @@ iwm_probe(device_t dev)
 }
 
 static int
-iwm_preinit_locked(struct iwm_softc *sc)
-{
-	struct ieee80211com *ic = sc->sc_ic;
-	int error;
-	static int attached;
-
-	DPRINTFN(10, ("->%s\n", __func__));
-	if ((error = iwm_prepare_card_hw(sc)) != 0) {
-		printf("%s: could not initialize hardware\n", DEVNAME(sc));
-		return error;
-	}
-
-	if (attached) {
-		DPRINTFN(10, ("<-%s attached=%d\n", __func__, attached));
-		return 0;
-	}
-
-	if ((error = iwm_start_hw(sc)) != 0) {
-		printf("%s: could not initialize hardware\n", DEVNAME(sc));
-		return error;
-	}
-
-	error = iwm_run_init_mvm_ucode(sc, 1);
-	iwm_stop_device(sc);
-	if (error)
-		return error;
-
-	/* Print version info on first successful fw load. */
-	attached = 1;
-	device_printf(sc->sc_dev,
-	    "revision: 0x%x, firmware %d.%d (API ver. %d)\n",
-	    sc->sc_hw_rev & IWM_CSR_HW_REV_TYPE_MSK,
-	    IWM_UCODE_MAJOR(sc->sc_fwver),
-	    IWM_UCODE_MINOR(sc->sc_fwver),
-	    IWM_UCODE_API(sc->sc_fwver));
-
-	/* not all hardware can do 5GHz band */
-	if (!sc->sc_nvm.sku_cap_band_52GHz_enable)
-		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
-		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
-
-	IWM_UNLOCK(sc);
-	ieee80211_ifattach(ic, sc->sc_bssid);
-	IWM_LOCK(sc);
-	ic->ic_vap_create = iwm_vap_create;
-	ic->ic_vap_delete = iwm_vap_delete;
-	ic->ic_raw_xmit = iwm_raw_xmit;
-	ic->ic_node_alloc = iwm_node_alloc;
-	ic->ic_scan_start = iwm_scan_start;
-	ic->ic_scan_end = iwm_scan_end;
-	ic->ic_update_mcast = iwm_update_mcast;
-	ic->ic_set_channel = iwm_set_channel;
-	ic->ic_scan_curchan = iwm_scan_curchan;
-	ic->ic_scan_mindwell = iwm_scan_mindwell;
-	iwm_radiotap_attach(sc);
-	if (bootverbose)
-		ieee80211_announce(ic);
-	DPRINTFN(10, ("<-%s\n", __func__));
-
-	return 0;
-}
-
-static int
 iwm_attach(device_t dev)
 {
 	struct iwm_softc *sc;
@@ -6601,13 +6537,52 @@ iwm_attach(device_t dev)
 	/* Max RSSI */
 	sc->sc_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
 	IWM_LOCK(sc);
-	iwm_preinit_locked(sc);
+	if ((error = iwm_start_hw(sc)) != 0) {
+		printf("%s: could not initialize hardware\n", DEVNAME(sc));
+		IWM_UNLOCK(sc);
+		goto fail4;
+	}
+
+	error = iwm_run_init_mvm_ucode(sc, 1);
+	iwm_stop_device(sc);
+	if (error) {
+		IWM_UNLOCK(sc);
+		goto fail4;
+	}
+	device_printf(sc->sc_dev,
+	    "revision: 0x%x, firmware %d.%d (API ver. %d)\n",
+	    sc->sc_hw_rev & IWM_CSR_HW_REV_TYPE_MSK,
+	    IWM_UCODE_MAJOR(sc->sc_fwver),
+	    IWM_UCODE_MINOR(sc->sc_fwver),
+	    IWM_UCODE_API(sc->sc_fwver));
+
+	/* not all hardware can do 5GHz band */
+	if (!sc->sc_nvm.sku_cap_band_52GHz_enable)
+		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
+		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
+
 	IWM_UNLOCK(sc);
+	ieee80211_ifattach(ic, sc->sc_bssid);
+	ic->ic_vap_create = iwm_vap_create;
+	ic->ic_vap_delete = iwm_vap_delete;
+	ic->ic_raw_xmit = iwm_raw_xmit;
+	ic->ic_node_alloc = iwm_node_alloc;
+	ic->ic_scan_start = iwm_scan_start;
+	ic->ic_scan_end = iwm_scan_end;
+	ic->ic_update_mcast = iwm_update_mcast;
+	ic->ic_set_channel = iwm_set_channel;
+	ic->ic_scan_curchan = iwm_scan_curchan;
+	ic->ic_scan_mindwell = iwm_scan_mindwell;
+	iwm_radiotap_attach(sc);
+	if (bootverbose)
+		ieee80211_announce(ic);
 #ifdef IWM_DEBUG
 	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
 	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO, "debug",
 	    CTLFLAG_RW, &iwm_debug, iwm_debug, "control debugging");
 #endif
+	DPRINTFN(10, ("<-%s\n", __func__));
+
 	return 0;
 
 	/* Free allocated memory if something failed during attachment. */
