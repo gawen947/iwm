@@ -2537,16 +2537,51 @@ enum iwm_nvm_channel_flags {
 	IWM_NVM_CHANNEL_160MHZ = (1 << 11),
 };
 
+/*
+ * Add a channel to the net80211 channel list.
+ *
+ * ieee is the ieee channel number
+ * ch_idx is channel index.
+ * mode is the channel mode - CHAN_A, CHAN_B, CHAN_G.
+ * ch_flags is the iwm channel flags.
+ *
+ * Return 0 on OK, < 0 on error.
+ */
+static int
+iwm_init_net80211_channel(struct iwm_softc *sc, int ieee, int ch_idx,
+    int mode, uint16_t ch_flags)
+{
+	/* XXX for now, no overflow checking! */
+	struct ieee80211com *ic =  sc->sc_ic;
+	int is_5ghz, flags;
+	struct ieee80211_channel *channel;
+
+	channel = &ic->ic_channels[ic->ic_nchans++];
+	channel->ic_ieee = ieee;
+
+	is_5ghz = ch_idx >= IWM_NUM_2GHZ_CHANNELS;
+	if (!is_5ghz) {
+		flags = IEEE80211_CHAN_2GHZ;
+		channel->ic_flags = mode;
+	} else {
+		flags = IEEE80211_CHAN_5GHZ;
+		channel->ic_flags = mode;
+	}
+	channel->ic_freq = ieee80211_ieee2mhz(ieee, flags);
+
+	if (!(ch_flags & IWM_NVM_CHANNEL_ACTIVE))
+		channel->ic_flags |= IEEE80211_CHAN_PASSIVE;
+	return (0);
+}
+
 static void
 iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 {
 	struct ieee80211com *ic =  sc->sc_ic;
 	struct iwm_nvm_data *data = &sc->sc_nvm;
 	int ch_idx;
-	struct ieee80211_channel *channel;
 	uint16_t ch_flags;
-	int is_5ghz;
-	int flags, hw_value;
+	int hw_value;
 
 	for (ch_idx = 0; ch_idx < nitems(iwm_nvm_channels); ch_idx++) {
 		ch_flags = le16_to_cpup(nvm_ch_flags + ch_idx);
@@ -2565,26 +2600,26 @@ iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 		}
 
 		hw_value = iwm_nvm_channels[ch_idx];
-		channel = &ic->ic_channels[ic->ic_nchans++];
-		channel->ic_ieee = hw_value;
 
-		is_5ghz = ch_idx >= IWM_NUM_2GHZ_CHANNELS;
-		if (!is_5ghz) {
-			flags = IEEE80211_CHAN_2GHZ;
-			channel->ic_flags
-			    = IEEE80211_CHAN_CCK
-			    | IEEE80211_CHAN_OFDM
-			    | IEEE80211_CHAN_DYN
-			    | IEEE80211_CHAN_2GHZ;
+		/* 5GHz? */
+		if (ch_idx >= IWM_NUM_2GHZ_CHANNELS) {
+			(void) iwm_init_net80211_channel(sc, hw_value,
+			    ch_idx,
+			    IEEE80211_CHAN_A,
+			    ch_flags);
 		} else {
-			flags = IEEE80211_CHAN_5GHZ;
-			channel->ic_flags =
-			    IEEE80211_CHAN_A;
+			(void) iwm_init_net80211_channel(sc, hw_value,
+			    ch_idx,
+			    IEEE80211_CHAN_B,
+			    ch_flags);
+			/* If it's not channel 13, also add 11g */
+			if (hw_value != 13)
+				(void) iwm_init_net80211_channel(sc, hw_value,
+				    ch_idx,
+				    IEEE80211_CHAN_G,
+				    ch_flags);
 		}
-		channel->ic_freq = ieee80211_ieee2mhz(hw_value, flags);
 
-		if (!(ch_flags & IWM_NVM_CHANNEL_ACTIVE))
-			channel->ic_flags |= IEEE80211_CHAN_PASSIVE;
 		DPRINTF(("Ch. %d Flags %x [%sGHz] - Added\n",
 			iwm_nvm_channels[ch_idx],
 			ch_flags,
