@@ -929,7 +929,8 @@ iwm_dma_map_addr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 #ifdef IWM_DEBUG
 	for (int i = 0; i < nsegs; i++)
 		DPRINTFN(20, ("%s addr 0x%lx len 0x%lx\n", __func__,
-			segs[i].ds_addr, segs[i].ds_len));
+			(unsigned long) segs[i].ds_addr,
+			(unsigned long) segs[i].ds_len));
 #endif
         *(bus_addr_t *)arg = segs[0].ds_addr;
 }
@@ -1754,7 +1755,8 @@ iwm_nic_tx_init(struct iwm_softc *sc)
 		IWM_WRITE(sc, IWM_FH_MEM_CBBC_QUEUE(qid),
 		    txq->desc_dma.paddr >> 8);
 		DPRINTF(("loading ring %d descriptors (%p) at %lx\n",
-		    qid, txq->desc, txq->desc_dma.paddr >> 8));
+		    qid, txq->desc,
+		    (unsigned long) (txq->desc_dma.paddr >> 8)));
 	}
 	iwm_nic_unlock(sc);
 
@@ -3599,7 +3601,8 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	desc->num_tbs = 1;
 
 	DPRINTFN(8, ("iwm_send_cmd 0x%x size=%lu %s\n",
-	    code, hcmd->len[0] + hcmd->len[1] + sizeof(cmd->hdr),
+	    code,
+	    (unsigned long) (hcmd->len[0] + hcmd->len[1] + sizeof(cmd->hdr)),
 	    async ? " (async)" : ""));
 
 	if (hcmd->len[0] > sizeof(cmd->data)) {
