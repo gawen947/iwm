@@ -4609,8 +4609,23 @@ iwm_mvm_scan_fill_channels(struct iwm_softc *sc, struct iwm_scan_cmd *cmd,
 
 	for (nchan = j = 0; j < ic->ic_nchans; j++) {
 		c = &ic->ic_channels[j];
-		if ((c->ic_flags & flags) != flags)
+		/* For 2GHz, only populate 11b channels */
+		/* For 5GHz, only populate 11a channels */
+		/*
+		 * Catch other channels, in case we have 900MHz channels or
+		 * something in the chanlist.
+		 */
+		if ((flags & IEEE80211_CHAN_2GHZ) && (! IEEE80211_IS_CHAN_B(c))) {
 			continue;
+		} else if ((flags & IEEE80211_CHAN_5GHZ) && (! IEEE80211_IS_CHAN_A(c))) {
+			continue;
+		} else {
+			DPRINTFN(10, ("%s: skipping channel (freq=%d, ieee=%d, flags=0x%08x)\n",
+			    __func__,
+			    c->ic_freq,
+			    c->ic_ieee,
+			    c->ic_flags));
+		}
 		DPRINTFN(10, ("Adding channel %d (%d Mhz) to the list\n",
 			nchan, c->ic_freq));
 		chan->channel = htole16(ieee80211_mhz2ieee(c->ic_freq, flags));
