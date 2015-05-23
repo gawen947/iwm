@@ -929,7 +929,8 @@ iwm_dma_map_addr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 #ifdef IWM_DEBUG
 	for (int i = 0; i < nsegs; i++)
 		DPRINTFN(20, ("%s addr 0x%lx len 0x%lx\n", __func__,
-			segs[i].ds_addr, segs[i].ds_len));
+			(unsigned long) segs[i].ds_addr,
+			(unsigned long) segs[i].ds_len));
 #endif
         *(bus_addr_t *)arg = segs[0].ds_addr;
 }
@@ -1754,7 +1755,8 @@ iwm_nic_tx_init(struct iwm_softc *sc)
 		IWM_WRITE(sc, IWM_FH_MEM_CBBC_QUEUE(qid),
 		    txq->desc_dma.paddr >> 8);
 		DPRINTF(("loading ring %d descriptors (%p) at %lx\n",
-		    qid, txq->desc, txq->desc_dma.paddr >> 8));
+		    qid, txq->desc,
+		    (unsigned long) (txq->desc_dma.paddr >> 8)));
 	}
 	iwm_nic_unlock(sc);
 
@@ -2537,16 +2539,51 @@ enum iwm_nvm_channel_flags {
 	IWM_NVM_CHANNEL_160MHZ = (1 << 11),
 };
 
+/*
+ * Add a channel to the net80211 channel list.
+ *
+ * ieee is the ieee channel number
+ * ch_idx is channel index.
+ * mode is the channel mode - CHAN_A, CHAN_B, CHAN_G.
+ * ch_flags is the iwm channel flags.
+ *
+ * Return 0 on OK, < 0 on error.
+ */
+static int
+iwm_init_net80211_channel(struct iwm_softc *sc, int ieee, int ch_idx,
+    int mode, uint16_t ch_flags)
+{
+	/* XXX for now, no overflow checking! */
+	struct ieee80211com *ic =  sc->sc_ic;
+	int is_5ghz, flags;
+	struct ieee80211_channel *channel;
+
+	channel = &ic->ic_channels[ic->ic_nchans++];
+	channel->ic_ieee = ieee;
+
+	is_5ghz = ch_idx >= IWM_NUM_2GHZ_CHANNELS;
+	if (!is_5ghz) {
+		flags = IEEE80211_CHAN_2GHZ;
+		channel->ic_flags = mode;
+	} else {
+		flags = IEEE80211_CHAN_5GHZ;
+		channel->ic_flags = mode;
+	}
+	channel->ic_freq = ieee80211_ieee2mhz(ieee, flags);
+
+	if (!(ch_flags & IWM_NVM_CHANNEL_ACTIVE))
+		channel->ic_flags |= IEEE80211_CHAN_PASSIVE;
+	return (0);
+}
+
 static void
 iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 {
 	struct ieee80211com *ic =  sc->sc_ic;
 	struct iwm_nvm_data *data = &sc->sc_nvm;
 	int ch_idx;
-	struct ieee80211_channel *channel;
 	uint16_t ch_flags;
-	int is_5ghz;
-	int flags, hw_value;
+	int hw_value;
 
 	for (ch_idx = 0; ch_idx < nitems(iwm_nvm_channels); ch_idx++) {
 		ch_flags = le16_to_cpup(nvm_ch_flags + ch_idx);
@@ -2565,26 +2602,26 @@ iwm_init_channel_map(struct iwm_softc *sc, const uint16_t * const nvm_ch_flags)
 		}
 
 		hw_value = iwm_nvm_channels[ch_idx];
-		channel = &ic->ic_channels[ic->ic_nchans++];
-		channel->ic_ieee = hw_value;
 
-		is_5ghz = ch_idx >= IWM_NUM_2GHZ_CHANNELS;
-		if (!is_5ghz) {
-			flags = IEEE80211_CHAN_2GHZ;
-			channel->ic_flags
-			    = IEEE80211_CHAN_CCK
-			    | IEEE80211_CHAN_OFDM
-			    | IEEE80211_CHAN_DYN
-			    | IEEE80211_CHAN_2GHZ;
+		/* 5GHz? */
+		if (ch_idx >= IWM_NUM_2GHZ_CHANNELS) {
+			(void) iwm_init_net80211_channel(sc, hw_value,
+			    ch_idx,
+			    IEEE80211_CHAN_A,
+			    ch_flags);
 		} else {
-			flags = IEEE80211_CHAN_5GHZ;
-			channel->ic_flags =
-			    IEEE80211_CHAN_A;
+			(void) iwm_init_net80211_channel(sc, hw_value,
+			    ch_idx,
+			    IEEE80211_CHAN_B,
+			    ch_flags);
+			/* If it's not channel 13, also add 11g */
+			if (hw_value != 13)
+				(void) iwm_init_net80211_channel(sc, hw_value,
+				    ch_idx,
+				    IEEE80211_CHAN_G,
+				    ch_flags);
 		}
-		channel->ic_freq = ieee80211_ieee2mhz(hw_value, flags);
 
-		if (!(ch_flags & IWM_NVM_CHANNEL_ACTIVE))
-			channel->ic_flags |= IEEE80211_CHAN_PASSIVE;
 		DPRINTF(("Ch. %d Flags %x [%sGHz] - Added\n",
 			iwm_nvm_channels[ch_idx],
 			ch_flags,
@@ -3564,7 +3601,8 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	desc->num_tbs = 1;
 
 	DPRINTFN(8, ("iwm_send_cmd 0x%x size=%lu %s\n",
-	    code, hcmd->len[0] + hcmd->len[1] + sizeof(cmd->hdr),
+	    code,
+	    (unsigned long) (hcmd->len[0] + hcmd->len[1] + sizeof(cmd->hdr)),
 	    async ? " (async)" : ""));
 
 	if (hcmd->len[0] > sizeof(cmd->data)) {
@@ -4571,8 +4609,23 @@ iwm_mvm_scan_fill_channels(struct iwm_softc *sc, struct iwm_scan_cmd *cmd,
 
 	for (nchan = j = 0; j < ic->ic_nchans; j++) {
 		c = &ic->ic_channels[j];
-		if ((c->ic_flags & flags) != flags)
+		/* For 2GHz, only populate 11b channels */
+		/* For 5GHz, only populate 11a channels */
+		/*
+		 * Catch other channels, in case we have 900MHz channels or
+		 * something in the chanlist.
+		 */
+		if ((flags & IEEE80211_CHAN_2GHZ) && (! IEEE80211_IS_CHAN_B(c))) {
 			continue;
+		} else if ((flags & IEEE80211_CHAN_5GHZ) && (! IEEE80211_IS_CHAN_A(c))) {
+			continue;
+		} else {
+			DPRINTFN(10, ("%s: skipping channel (freq=%d, ieee=%d, flags=0x%08x)\n",
+			    __func__,
+			    c->ic_freq,
+			    c->ic_ieee,
+			    c->ic_flags));
+		}
 		DPRINTFN(10, ("Adding channel %d (%d Mhz) to the list\n",
 			nchan, c->ic_freq));
 		chan->channel = htole16(ieee80211_mhz2ieee(c->ic_freq, flags));
@@ -6798,3 +6851,6 @@ static driver_t iwm_pci_driver = {
 static devclass_t iwm_devclass;
 
 DRIVER_MODULE(iwm, pci, iwm_pci_driver, iwm_devclass, NULL, NULL);
+MODULE_DEPEND(iwm, firmware, 1, 1, 1);
+MODULE_DEPEND(iwm, pci, 1, 1, 1);
+MODULE_DEPEND(iwm, wlan, 1, 1, 1);
