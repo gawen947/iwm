@@ -6836,3 +6836,6 @@ static driver_t iwm_pci_driver = {
 static devclass_t iwm_devclass;
 
 DRIVER_MODULE(iwm, pci, iwm_pci_driver, iwm_devclass, NULL, NULL);
+MODULE_DEPEND(iwm, firmware, 1, 1, 1);
+MODULE_DEPEND(iwm, pci, 1, 1, 1);
+MODULE_DEPEND(iwm, wlan, 1, 1, 1);
