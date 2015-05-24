@@ -5798,7 +5798,7 @@ iwm_watchdog(void *arg)
 			iwm_nic_error(sc);
 #endif
 			ifp->if_flags &= ~IFF_UP;
-			iwm_stop(ifp, 1);
+			iwm_stop_locked(ifp);
 			if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 			return;
 		}
