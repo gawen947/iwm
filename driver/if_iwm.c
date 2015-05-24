@@ -1144,8 +1144,10 @@ iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 			data->map = NULL;
 		}
 	}
-	bus_dma_tag_destroy(ring->data_dmat);
-	ring->data_dmat = NULL;
+	if (ring->data_dmat != NULL) {
+		bus_dma_tag_destroy(ring->data_dmat);
+		ring->data_dmat = NULL;
+	}
 }
 
 static int
@@ -1264,8 +1266,10 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 			data->map = NULL;
 		}
 	}
-	bus_dma_tag_destroy(ring->data_dmat);
-	ring->data_dmat = NULL;
+	if (ring->data_dmat != NULL) {
+		bus_dma_tag_destroy(ring->data_dmat);
+		ring->data_dmat = NULL;
+	}
 }
 
 /*
