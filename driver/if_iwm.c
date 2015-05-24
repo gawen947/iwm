@@ -3161,7 +3161,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 	struct ieee80211_frame *wh;
 	struct ieee80211_node *ni;
-	struct ieee80211_channel *c = NULL;
+	struct ieee80211_rx_stats rxs;
 	struct mbuf *m;
 	struct iwm_rx_phy_info *phy_info;
 	struct iwm_rx_mpdu_res_start *rx_res;
@@ -3207,13 +3207,27 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		return;
 	}
 
-	if (sc->sc_scanband == IEEE80211_CHAN_5GHZ) {
-		if (le32toh(phy_info->channel) < nitems(ic->ic_channels))
-			c = &ic->ic_channels[le32toh(phy_info->channel)];
-	}
 	ni = ieee80211_find_rxnode(ic, (struct ieee80211_frame_min *)wh);
-	if (ni && c)
-		ni->ni_chan = c;
+
+	DPRINTFN(12, ("%s: phy_info: channel=%d, flags=0x%08x\n",
+	    __func__,
+	    le16toh(phy_info->channel),
+	    le16toh(phy_info->phy_flags)));
+
+	/*
+	 * Populate an RX state struct with the provided information.
+	 */
+	bzero(&rxs, sizeof(rxs));
+	rxs.r_flags |= IEEE80211_R_IEEE | IEEE80211_R_FREQ;
+	rxs.r_flags |= IEEE80211_R_NF | IEEE80211_R_RSSI;
+	rxs.c_ieee = le16toh(phy_info->channel);
+	if (le16toh(phy_info->phy_flags & IWM_RX_RES_PHY_FLAGS_BAND_24)) {
+		rxs.c_freq = ieee80211_ieee2mhz(rxs.c_ieee, IEEE80211_CHAN_2GHZ);
+	} else {
+		rxs.c_freq = ieee80211_ieee2mhz(rxs.c_ieee, IEEE80211_CHAN_5GHZ);
+	}
+	rxs.rssi = rssi - sc->sc_noise;
+	rxs.nf = sc->sc_noise;
 
 	if (ieee80211_radiotap_active_vap(vap)) {
 		struct iwm_rx_radiotap_header *tap = &sc->sc_rxtap;
@@ -3221,6 +3235,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		tap->wr_flags = 0;
 		if (phy_info->phy_flags & htole16(IWM_PHY_INFO_FLAG_SHPREAMBLE))
 			tap->wr_flags |= IEEE80211_RADIOTAP_F_SHORTPRE;
+		/* XXX is phy_info->channel correct as an index? */
 		tap->wr_chan_freq =
 		    htole16(ic->ic_channels[phy_info->channel].ic_freq);
 		tap->wr_chan_flags =
@@ -3251,12 +3266,11 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	IWM_UNLOCK(sc);
 	if (ni != NULL) {
 		DPRINTFN(10, ("input m %p\n", m));
-		ieee80211_input(ni, m, rssi - sc->sc_noise, sc->sc_noise);
+		ieee80211_input_mimo(ni, m, &rxs);
 		ieee80211_free_node(ni);
 	} else {
 		DPRINTFN(10, ("inputall m %p\n", m));
-		ieee80211_input_all(ic, m, rssi - sc->sc_noise,
-		    sc->sc_noise);
+		ieee80211_input_mimo_all(ic, m, &rxs);
 	}
 	IWM_LOCK(sc);
 }
