@@ -649,7 +649,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				device_printf(sc->sc_dev,
 				    "%s: PROBE_MAX_LEN (%d) < sizeof(uint32_t)\n",
 				    __func__,
-				    tlv_len);
+				    (int) tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -668,7 +668,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				device_printf(sc->sc_dev,
 				    "%s: IWM_UCODE_TLV_PAN: tlv_len (%d) > 0\n",
 				    __func__,
-				    tlv_len);
+				    (int) tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -679,7 +679,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				device_printf(sc->sc_dev,
 				    "%s: IWM_UCODE_TLV_FLAGS: tlv_len (%d) < sizeof(uint32_t)\n",
 				    __func__,
-				    tlv_len);
+				    (int) tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -711,7 +711,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				device_printf(sc->sc_dev,
 				    "%s: IWM_UCODE_TLV_NUM_OF_CPU: tlv_len (%d) < sizeof(uint32_t)\n",
 				    __func__,
-				    tlv_len);
+				    (int) tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -757,8 +757,8 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				device_printf(sc->sc_dev,
 				    "%s: IWM_UCODE_TLV_DEV_CALIB: tlv_len (%d) < sizeof(iwm_tlv_calib_data) (%d)\n",
 				    __func__,
-				    tlv_len,
-				    sizeof(struct iwm_tlv_calib_data));
+				    (int) tlv_len,
+				    (int) sizeof(struct iwm_tlv_calib_data));
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -776,7 +776,7 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 				device_printf(sc->sc_dev,
 				    "%s: IWM_UCODE_TLV_PHY_SKU: tlv_len (%d) < sizeof(uint32_t)\n",
 				    __func__,
-				    tlv_len);
+				    (int) tlv_len);
 				goto parse_out;
 			}
 			sc->sc_fw_phy_config =
