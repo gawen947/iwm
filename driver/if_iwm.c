@@ -646,6 +646,10 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 		switch ((int)tlv_type) {
 		case IWM_UCODE_TLV_PROBE_MAX_LEN:
 			if (tlv_len < sizeof(uint32_t)) {
+				device_printf(sc->sc_dev,
+				    "%s: PROBE_MAX_LEN (%d) < sizeof(uint32_t)\n",
+				    __func__,
+				    tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -661,6 +665,10 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 			break;
 		case IWM_UCODE_TLV_PAN:
 			if (tlv_len) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TLV_PAN: tlv_len (%d) > 0\n",
+				    __func__,
+				    tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -668,6 +676,10 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 			break;
 		case IWM_UCODE_TLV_FLAGS:
 			if (tlv_len < sizeof(uint32_t)) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TLV_FLAGS: tlv_len (%d) < sizeof(uint32_t)\n",
+				    __func__,
+				    tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -686,11 +698,20 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 			break;
 		case IWM_UCODE_TLV_CSCHEME:
 			if ((error = iwm_store_cscheme(sc,
-			    tlv_data, tlv_len)) != 0)
+			    tlv_data, tlv_len)) != 0) {
+				device_printf(sc->sc_dev,
+				    "%s: iwm_store_cscheme(): returned %d\n",
+				    __func__,
+				    error);
 				goto parse_out;
+			}
 			break;
 		case IWM_UCODE_TLV_NUM_OF_CPU:
 			if (tlv_len != sizeof(uint32_t)) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TLV_NUM_OF_CPU: tlv_len (%d) < sizeof(uint32_t)\n",
+				    __func__,
+				    tlv_len);
 				error = EINVAL;
 				goto parse_out;
 			}
@@ -703,30 +724,59 @@ iwm_read_firmware(struct iwm_softc *sc, enum iwm_ucode_type ucode_type)
 			break;
 		case IWM_UCODE_TLV_SEC_RT:
 			if ((error = iwm_firmware_store_section(sc,
-			    IWM_UCODE_TYPE_REGULAR, tlv_data, tlv_len)) != 0)
+			    IWM_UCODE_TYPE_REGULAR, tlv_data, tlv_len)) != 0) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TYPE_REGULAR: iwm_firmware_store_section() failed; %d\n",
+				    __func__,
+				    error);
 				goto parse_out;
+			}
 			break;
 		case IWM_UCODE_TLV_SEC_INIT:
 			if ((error = iwm_firmware_store_section(sc,
-			    IWM_UCODE_TYPE_INIT, tlv_data, tlv_len)) != 0)
+			    IWM_UCODE_TYPE_INIT, tlv_data, tlv_len)) != 0) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TYPE_INIT: iwm_firmware_store_section() failed; %d\n",
+				    __func__,
+				    error);
 				goto parse_out;
+			}
 			break;
 		case IWM_UCODE_TLV_SEC_WOWLAN:
 			if ((error = iwm_firmware_store_section(sc,
-			    IWM_UCODE_TYPE_WOW, tlv_data, tlv_len)) != 0)
+			    IWM_UCODE_TYPE_WOW, tlv_data, tlv_len)) != 0) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TYPE_WOW: iwm_firmware_store_section() failed; %d\n",
+				    __func__,
+				    error);
 				goto parse_out;
+			}
 			break;
 		case IWM_UCODE_TLV_DEF_CALIB:
 			if (tlv_len != sizeof(struct iwm_tlv_calib_data)) {
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TLV_DEV_CALIB: tlv_len (%d) < sizeof(iwm_tlv_calib_data) (%d)\n",
+				    __func__,
+				    tlv_len,
+				    sizeof(struct iwm_tlv_calib_data));
 				error = EINVAL;
 				goto parse_out;
 			}
-			if ((error = iwm_set_default_calib(sc, tlv_data)) != 0)
+			if ((error = iwm_set_default_calib(sc, tlv_data)) != 0) {
+				device_printf(sc->sc_dev,
+				    "%s: iwm_set_default_calib() failed: %d\n",
+				    __func__,
+				    error);
 				goto parse_out;
+			}
 			break;
 		case IWM_UCODE_TLV_PHY_SKU:
 			if (tlv_len != sizeof(uint32_t)) {
 				error = EINVAL;
+				device_printf(sc->sc_dev,
+				    "%s: IWM_UCODE_TLV_PHY_SKU: tlv_len (%d) < sizeof(uint32_t)\n",
+				    __func__,
+				    tlv_len);
 				goto parse_out;
 			}
 			sc->sc_fw_phy_config =
