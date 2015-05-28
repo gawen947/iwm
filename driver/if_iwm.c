@@ -6674,6 +6674,7 @@ iwm_pci_attach(device_t dev)
 
 	/* Install interrupt handler. */
 	count = 1;
+	rid = 0;
 	if (pci_alloc_msi(dev, &count) == 0)
 		rid = 1;
 	sc->sc_irq = bus_alloc_resource_any(dev, SYS_RES_IRQ, &rid, RF_ACTIVE |
