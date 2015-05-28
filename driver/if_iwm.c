@@ -6612,28 +6612,42 @@ iwm_probe(device_t dev)
 }
 
 static int
-iwm_attach(device_t dev)
+iwm_dev_check(device_t dev)
 {
 	struct iwm_softc *sc;
-	struct ieee80211com *ic;
-	struct ifnet *ifp;
-	int error, count, rid;
-	int txq_i, i;
+
+	sc = device_get_softc(dev);
+
+	switch (pci_get_device(dev)) {
+	case PCI_PRODUCT_INTEL_WL_3160_1:
+	case PCI_PRODUCT_INTEL_WL_3160_2:
+		sc->sc_fwname = "iwm-3160-9";
+		sc->host_interrupt_operation_mode = 1;
+		return (0);
+	case PCI_PRODUCT_INTEL_WL_7260_1:
+	case PCI_PRODUCT_INTEL_WL_7260_2:
+		sc->sc_fwname = "iwm-7260-9";
+		sc->host_interrupt_operation_mode = 1;
+		return (0);
+	case PCI_PRODUCT_INTEL_WL_7265_1:
+	case PCI_PRODUCT_INTEL_WL_7265_2:
+		sc->sc_fwname = "iwm-7265-9";
+		sc->host_interrupt_operation_mode = 0;
+		return (0);
+	default:
+		device_printf(dev, "unknown adapter type\n");
+		return ENXIO;
+	}
+}
+
+static int
+iwm_pci_attach(device_t dev)
+{
+	struct iwm_softc *sc;
+	int count, error, rid;
 	uint16_t reg;
 
 	sc = device_get_softc(dev);
-	sc->sc_dev = dev;
-	mtx_init(&sc->sc_mtx, "iwm_mtx", MTX_DEF, 0);
-	callout_init_mtx(&sc->sc_watchdog_to, &sc->sc_mtx, 0);
-	TASK_INIT(&sc->sc_es_task, 0, iwm_endscan_cb, sc);
-	sc->sc_tq = taskqueue_create("iwm_taskq", M_WAITOK,
-            taskqueue_thread_enqueue, &sc->sc_tq);
-        error = taskqueue_start_threads(&sc->sc_tq, 1, 0, "iwm_taskq");
-        if (error != 0) {
-                device_printf(dev, "can't start threads, error %d\n",
-		    error);
-		return (ENXIO);
-        }
 
 	/* Clear device-specific "PCI retry timeout" register (41h). */
 	reg = pci_read_config(dev, 0x40, sizeof(reg));
@@ -6653,7 +6667,7 @@ iwm_attach(device_t dev)
 	    RF_ACTIVE);
 	if (sc->sc_mem == NULL) {
 		device_printf(sc->sc_dev, "can't map mem space\n");
-		return ENXIO;
+		return (ENXIO);
 	}
 	sc->sc_st = rman_get_bustag(sc->sc_mem);
 	sc->sc_sh = rman_get_bushandle(sc->sc_mem);
@@ -6666,37 +6680,55 @@ iwm_attach(device_t dev)
 	    (rid != 0 ? 0 : RF_SHAREABLE));
 	if (sc->sc_irq == NULL) {
 		device_printf(dev, "can't map interrupt\n");
-		return ENXIO;
+			return (ENXIO);
 	}
 	error = bus_setup_intr(dev, sc->sc_irq, INTR_TYPE_NET | INTR_MPSAFE,
 	    NULL, iwm_intr, sc, &sc->sc_ih);
 	if (sc->sc_ih == NULL) {
 		device_printf(dev, "can't establish interrupt");
-		return ENXIO;
+			return (ENXIO);
 	}
 	sc->sc_dmat = bus_get_dma_tag(sc->sc_dev);
+
+	return (0);
+}
+
+static int
+iwm_attach(device_t dev)
+{
+	struct iwm_softc *sc;
+	struct ieee80211com *ic;
+	struct ifnet *ifp;
+	int error;
+	int txq_i, i;
+
+	sc = device_get_softc(dev);
+	sc->sc_dev = dev;
+	mtx_init(&sc->sc_mtx, "iwm_mtx", MTX_DEF, 0);
+
+	callout_init_mtx(&sc->sc_watchdog_to, &sc->sc_mtx, 0);
+	TASK_INIT(&sc->sc_es_task, 0, iwm_endscan_cb, sc);
+	sc->sc_tq = taskqueue_create("iwm_taskq", M_WAITOK,
+            taskqueue_thread_enqueue, &sc->sc_tq);
+        error = taskqueue_start_threads(&sc->sc_tq, 1, 0, "iwm_taskq");
+        if (error != 0) {
+                device_printf(dev, "can't start threads, error %d\n",
+		    error);
+		goto fail;
+        }
+
+	/* PCI attach */
+	error = iwm_pci_attach(dev);
+	if (error != 0)
+		goto fail;
+
 	sc->sc_wantresp = -1;
 
-	switch (pci_get_device(dev)) {
-	case PCI_PRODUCT_INTEL_WL_3160_1:
-	case PCI_PRODUCT_INTEL_WL_3160_2:
-		sc->sc_fwname = "iwm-3160-9";
-		sc->host_interrupt_operation_mode = 1;
-		break;
-	case PCI_PRODUCT_INTEL_WL_7260_1:
-	case PCI_PRODUCT_INTEL_WL_7260_2:
-		sc->sc_fwname = "iwm-7260-9";
-		sc->host_interrupt_operation_mode = 1;
-		break;
-	case PCI_PRODUCT_INTEL_WL_7265_1:
-	case PCI_PRODUCT_INTEL_WL_7265_2:
-		sc->sc_fwname = "iwm-7265-9";
-		sc->host_interrupt_operation_mode = 0;
-		break;
-	default:
-		device_printf(dev, "unknown adapter type\n");
-		return ENXIO;
-	}
+	/* Check device type */
+	error = iwm_dev_check(dev);
+	if (error != 0)
+		goto fail;
+
 	sc->sc_fwdmasegsz = IWM_FWDMASEGSZ;
 
 	/*
@@ -6705,13 +6737,13 @@ iwm_attach(device_t dev)
 	sc->sc_hw_rev = IWM_READ(sc, IWM_CSR_HW_REV);
 	if (iwm_prepare_card_hw(sc) != 0) {
 		device_printf(dev, "could not initialize hardware\n");
-		return ENXIO;
+		goto fail;
 	}
 
 	/* Allocate DMA memory for firmware transfers. */
 	if ((error = iwm_alloc_fwmem(sc)) != 0) {
 		device_printf(dev, "could not allocate memory for firmware\n");
-		return ENXIO;
+		goto fail;
 	}
 
 	/* Allocate "Keep Warm" page. */
@@ -6846,6 +6878,8 @@ fail3:	if (sc->ict_dma.vaddr != NULL)
 		iwm_free_ict(sc);
 fail2:	iwm_free_kw(sc);
 fail1:	iwm_free_fwmem(sc);
+fail:
+	iwm_detach(dev);
 	return ENXIO;
 }
 
@@ -7032,6 +7066,8 @@ iwm_detach(device_t dev)
 	if (sc->sc_mem != NULL)
 		bus_release_resource(dev, SYS_RES_MEMORY,
 		    rman_get_rid(sc->sc_mem), sc->sc_mem);
+
+	mtx_destroy(&sc->sc_mtx);
 
 	return (0);
 }
