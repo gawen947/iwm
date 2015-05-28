@@ -430,6 +430,7 @@ struct iwm_softc {
 
 	int sc_intmask;
 	int sc_flags;
+	uint32_t sc_debug;
 
 	/*
 	 * So why do we need a separate stopped flag and a generation?
