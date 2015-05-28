@@ -1719,7 +1719,7 @@ iwm_mvm_nic_config(struct iwm_softc *sc)
 
 	IWM_WRITE(sc, IWM_CSR_HW_IF_CONFIG_REG, reg_val);
 
-	device_printf(sc->sc_dev,
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET,
 	    "Radio type=0x%x-0x%x-0x%x\n", radio_cfg_type,
 	    radio_cfg_step, radio_cfg_dash);
 
