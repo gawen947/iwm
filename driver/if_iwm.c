@@ -7052,7 +7052,11 @@ iwm_detach(device_t dev)
 	}
 	if (ifp) {
 		callout_drain(&sc->sc_watchdog_to);
-		ic = ifp->if_l2com;
+		/*
+		 * This assumes that sc_ic is only set just before
+		 * net80211 state is attached.
+		 */
+		ic = sc->sc_ic;
 		iwm_stop_device(sc);
 		if (ic)
 			ieee80211_ifdetach(ic);
