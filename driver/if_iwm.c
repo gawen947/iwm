@@ -151,8 +151,6 @@ __FBSDID("$FreeBSD$");
 #define	IWM_LOCK(_sc)	mtx_lock(&sc->sc_mtx)
 #define	IWM_UNLOCK(_sc)	mtx_unlock(&sc->sc_mtx)
 
-#define DEVNAME(_s)	(device_get_nameunit((_s)->sc_dev))
-
 #define le16_to_cpup(_a_) (le16toh(*(const uint16_t *)(_a_)))
 #define le32_to_cpup(_a_) (le32toh(*(const uint32_t *)(_a_)))
 
