@@ -458,6 +458,7 @@ static void	iwm_nic_error(struct iwm_softc *);
 static void	iwm_notif_intr(struct iwm_softc *);
 static void	iwm_intr(void *);
 static int	iwm_attach(device_t);
+static int	iwm_detach_local(struct iwm_softc *sc, int);
 static void	iwm_init_task(void *);
 static void	iwm_radiotap_attach(struct iwm_softc *);
 static struct ieee80211vap *
@@ -6694,6 +6695,24 @@ iwm_pci_attach(device_t dev)
 	return (0);
 }
 
+static void
+iwm_pci_detach(device_t dev)
+{
+	struct iwm_softc *sc = device_get_softc(dev);
+
+	if (sc->sc_irq != NULL) {
+		bus_teardown_intr(dev, sc->sc_irq, sc->sc_ih);
+		bus_release_resource(dev, SYS_RES_IRQ,
+		    rman_get_rid(sc->sc_irq), sc->sc_irq);
+		pci_release_msi(dev);
+        }
+	if (sc->sc_mem != NULL)
+		bus_release_resource(dev, SYS_RES_MEMORY,
+		    rman_get_rid(sc->sc_mem), sc->sc_mem);
+}
+
+
+
 static int
 iwm_attach(device_t dev)
 {
@@ -6787,7 +6806,7 @@ iwm_attach(device_t dev)
 
 	sc->sc_ifp = ifp = if_alloc(IFT_IEEE80211);
 	if (ifp == NULL) {
-		return ENXIO;
+		goto fail4;
 	}
 	ifp->if_softc = sc;
 	if_initname(ifp, "iwm", device_get_unit(dev));
@@ -6799,6 +6818,12 @@ iwm_attach(device_t dev)
 	ifp->if_snd.ifq_drv_maxlen = ifqmaxlen;
 	IFQ_SET_READY(&ifp->if_snd);
 
+	/*
+	 * Set it here so we can initialise net80211.
+	 * But, if we fail before we call net80211_ifattach(),
+	 * we can't just call iwm_detach() or it'll free
+	 * net80211 without it having been setup.
+	 */
 	sc->sc_ic = ic = ifp->if_l2com;
 	ic->ic_ifp = ifp;
 	ic->ic_softc = sc;
@@ -6847,6 +6872,11 @@ iwm_attach(device_t dev)
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
 
 	IWM_UNLOCK(sc);
+
+	/*
+	 * At this point we've committed - if we fail to do setup,
+	 * we now also have to tear down the net80211 state.
+	 */
 	ieee80211_ifattach(ic, sc->sc_bssid);
 	ic->ic_vap_create = iwm_vap_create;
 	ic->ic_vap_delete = iwm_vap_delete;
@@ -6880,7 +6910,8 @@ fail3:	if (sc->ict_dma.vaddr != NULL)
 fail2:	iwm_free_kw(sc);
 fail1:	iwm_free_fwmem(sc);
 fail:
-	iwm_detach(dev);
+	iwm_detach_local(sc, 0);
+
 	return ENXIO;
 }
 
@@ -7037,44 +7068,45 @@ iwm_suspend(device_t dev)
 }
 
 static int
-iwm_detach(device_t dev)
+iwm_detach_local(struct iwm_softc *sc, int do_net80211)
 {
-	struct iwm_softc *sc = device_get_softc(dev);
 	struct ifnet *ifp = sc->sc_ifp;
 	struct ieee80211com *ic;
 	struct iwm_fw_info *fw = &sc->sc_fw;
+	device_t dev = sc->sc_dev;
 
+	/* XXX does this free everything? TX/RX rings, firmware RAM, etc? */
+
+	/* XXX almost duplicate code in iwm_attach() teardown path */
 	if (fw->fw_rawdata != NULL)
 		iwm_fw_info_free(fw);
+
 	if (sc->sc_tq) {
 		taskqueue_drain_all(sc->sc_tq);
 		taskqueue_free(sc->sc_tq);
 	}
 	if (ifp) {
 		callout_drain(&sc->sc_watchdog_to);
-		/*
-		 * This assumes that sc_ic is only set just before
-		 * net80211 state is attached.
-		 */
 		ic = sc->sc_ic;
 		iwm_stop_device(sc);
-		if (ic)
+		if (ic && do_net80211)
 			ieee80211_ifdetach(ic);
 		if_free(ifp);
 	}
-	if (sc->sc_irq != NULL) {
-		bus_teardown_intr(dev, sc->sc_irq, sc->sc_ih);
-		bus_release_resource(dev, SYS_RES_IRQ,
-		    rman_get_rid(sc->sc_irq), sc->sc_irq);
-		pci_release_msi(dev);
-        }
-	if (sc->sc_mem != NULL)
-		bus_release_resource(dev, SYS_RES_MEMORY,
-		    rman_get_rid(sc->sc_mem), sc->sc_mem);
+
+	iwm_pci_detach(dev);
 
 	mtx_destroy(&sc->sc_mtx);
 
 	return (0);
+}
+
+static int
+iwm_detach(device_t dev)
+{
+	struct iwm_softc *sc = device_get_softc(dev);
+
+	return (iwm_detach_local(sc, 1));
 }
 
 static device_method_t iwm_pci_methods[] = {
