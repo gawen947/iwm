@@ -6769,19 +6769,19 @@ iwm_attach(device_t dev)
 	/* Allocate "Keep Warm" page. */
 	if ((error = iwm_alloc_kw(sc)) != 0) {
 		device_printf(dev, "could not allocate keep warm page\n");
-		goto fail1;
+		goto fail;
 	}
 
 	/* We use ICT interrupts */
 	if ((error = iwm_alloc_ict(sc)) != 0) {
 		device_printf(dev, "could not allocate ICT table\n");
-		goto fail2;
+		goto fail;
 	}
 
 	/* Allocate TX scheduler "rings". */
 	if ((error = iwm_alloc_sched(sc)) != 0) {
 		device_printf(dev, "could not allocate TX scheduler rings\n");
-		goto fail3;
+		goto fail;
 	}
 
 	/* Allocate TX rings */
@@ -6791,14 +6791,14 @@ iwm_attach(device_t dev)
 			device_printf(dev,
 			    "could not allocate TX ring %d\n",
 			    txq_i);
-			goto fail4;
+			goto fail;
 		}
 	}
 
 	/* Allocate RX ring. */
 	if ((error = iwm_alloc_rx_ring(sc, &sc->rxq)) != 0) {
 		device_printf(dev, "could not allocate RX ring\n");
-		goto fail4;
+		goto fail;
 	}
 
 	/* Clear pending interrupts. */
@@ -6806,7 +6806,7 @@ iwm_attach(device_t dev)
 
 	sc->sc_ifp = ifp = if_alloc(IFT_IEEE80211);
 	if (ifp == NULL) {
-		goto fail4;
+		goto fail;
 	}
 	ifp->if_softc = sc;
 	if_initname(ifp, "iwm", device_get_unit(dev));
@@ -6850,14 +6850,14 @@ iwm_attach(device_t dev)
 	if ((error = iwm_start_hw(sc)) != 0) {
 		device_printf(dev, "could not initialize hardware\n");
 		IWM_UNLOCK(sc);
-		goto fail4;
+		goto fail;
 	}
 
 	error = iwm_run_init_mvm_ucode(sc, 1);
 	iwm_stop_device(sc);
 	if (error) {
 		IWM_UNLOCK(sc);
-		goto fail4;
+		goto fail;
 	}
 	device_printf(dev,
 	    "revision: 0x%x, firmware %d.%d (API ver. %d)\n",
@@ -6902,13 +6902,6 @@ iwm_attach(device_t dev)
 	return 0;
 
 	/* Free allocated memory if something failed during attachment. */
-fail4:	while (--txq_i >= 0)
-		iwm_free_tx_ring(sc, &sc->txq[txq_i]);
-	iwm_free_sched(sc);
-fail3:	if (sc->ict_dma.vaddr != NULL)
-		iwm_free_ict(sc);
-fail2:	iwm_free_kw(sc);
-fail1:	iwm_free_fwmem(sc);
 fail:
 	iwm_detach_local(sc, 0);
 
@@ -7074,12 +7067,7 @@ iwm_detach_local(struct iwm_softc *sc, int do_net80211)
 	struct ieee80211com *ic;
 	struct iwm_fw_info *fw = &sc->sc_fw;
 	device_t dev = sc->sc_dev;
-
-	/* XXX does this free everything? TX/RX rings, firmware RAM, etc? */
-
-	/* XXX almost duplicate code in iwm_attach() teardown path */
-	if (fw->fw_rawdata != NULL)
-		iwm_fw_info_free(fw);
+	int i;
 
 	if (sc->sc_tq) {
 		taskqueue_drain_all(sc->sc_tq);
@@ -7094,6 +7082,24 @@ iwm_detach_local(struct iwm_softc *sc, int do_net80211)
 		if_free(ifp);
 	}
 
+	/* Free descriptor rings */
+	for (i = 0; i < nitems(sc->txq); i++)
+		iwm_free_tx_ring(sc, &sc->txq[i]);
+
+	/* Free firmware */
+	if (fw->fw_rawdata != NULL)
+		iwm_fw_info_free(fw);
+
+	/* free scheduler */
+	iwm_free_sched(sc);
+	if (sc->ict_dma.vaddr != NULL)
+		iwm_free_ict(sc);
+	if (sc->kw_dma.vaddr != NULL)
+		iwm_free_kw(sc);
+	if (sc->fw_dma.vaddr != NULL)
+		iwm_free_fwmem(sc);
+
+	/* Finished with the hardware - detach things */
 	iwm_pci_detach(dev);
 
 	mtx_destroy(&sc->sc_mtx);
