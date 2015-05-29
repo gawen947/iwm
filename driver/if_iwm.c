@@ -6621,17 +6621,17 @@ iwm_dev_check(device_t dev)
 	switch (pci_get_device(dev)) {
 	case PCI_PRODUCT_INTEL_WL_3160_1:
 	case PCI_PRODUCT_INTEL_WL_3160_2:
-		sc->sc_fwname = "iwm-3160-9";
+		sc->sc_fwname = "iwm3160fw";
 		sc->host_interrupt_operation_mode = 1;
 		return (0);
 	case PCI_PRODUCT_INTEL_WL_7260_1:
 	case PCI_PRODUCT_INTEL_WL_7260_2:
-		sc->sc_fwname = "iwm-7260-9";
+		sc->sc_fwname = "iwm7260fw";
 		sc->host_interrupt_operation_mode = 1;
 		return (0);
 	case PCI_PRODUCT_INTEL_WL_7265_1:
 	case PCI_PRODUCT_INTEL_WL_7265_2:
-		sc->sc_fwname = "iwm-7265-9";
+		sc->sc_fwname = "iwm7265fw";
 		sc->host_interrupt_operation_mode = 0;
 		return (0);
 	default:
