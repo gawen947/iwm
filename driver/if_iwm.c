@@ -151,8 +151,6 @@ __FBSDID("$FreeBSD$");
 #define	IWM_LOCK(_sc)	mtx_lock(&sc->sc_mtx)
 #define	IWM_UNLOCK(_sc)	mtx_unlock(&sc->sc_mtx)
 
-#define DEVNAME(_s)	(device_get_nameunit((_s)->sc_dev))
-
 #define le16_to_cpup(_a_) (le16toh(*(const uint16_t *)(_a_)))
 #define le32_to_cpup(_a_) (le32toh(*(const uint32_t *)(_a_)))
 
@@ -215,6 +213,7 @@ static void	iwm_set_bits_mask_prph(struct iwm_softc *, uint32_t, uint32_t,
 static void	iwm_set_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
 static void	iwm_clear_bits_prph(struct iwm_softc *, uint32_t, uint32_t);
 static void	iwm_dma_map_addr(void *, bus_dma_segment_t *, int, int);
+static void	iwm_dma_map_mem(void *, bus_dma_segment_t *, int, int);
 static int	iwm_dma_contig_alloc(bus_dma_tag_t, struct iwm_dma_info *,
                                      bus_size_t, bus_size_t);
 static void	iwm_dma_contig_free(struct iwm_dma_info *);
@@ -974,17 +973,23 @@ iwm_clear_bits_prph(struct iwm_softc *sc, uint32_t reg, uint32_t bits)
 static void
 iwm_dma_map_addr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
 {
-//	printf("%s error=%d nsegs=%d\n", __func__, error, nsegs);
         if (error != 0)
                 return;
-//	KASSERT(nsegs == 1, ("too many DMA segments, %d should be 1", nsegs));
-#ifdef IWM_DEBUG
-//	for (int i = 0; i < nsegs; i++)
-//		DPRINTFN(20, ("%s addr 0x%lx len 0x%lx\n", __func__,
-//			(unsigned long) segs[i].ds_addr,
-//			(unsigned long) segs[i].ds_len));
-#endif
+	KASSERT(nsegs == 1, ("too many DMA segments, %d should be 1", nsegs));
         *(bus_addr_t *)arg = segs[0].ds_addr;
+}
+
+static void
+iwm_dma_map_mem(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
+{
+        if (error != 0)
+                return;
+	KASSERT(nsegs <= 2, ("too many DMA segments, %d should be <= 2",
+	    nsegs));
+	if (nsegs > 1)
+		KASSERT(segs[1].ds_addr == segs[0].ds_addr + segs[0].ds_size,
+		    ("fragmented DMA memory"));
+	*(bus_addr_t *)arg = segs[0].ds_addr;
 }
 
 static int
@@ -3704,7 +3709,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 		if (error != 0)
 			goto out;
 		error = bus_dmamap_load(ring->data_dmat, data->map,
-		    cmd, paylen + sizeof(cmd->hdr), iwm_dma_map_addr,
+		    cmd, paylen + sizeof(cmd->hdr), iwm_dma_map_mem,
 		    &paddr, BUS_DMA_NOWAIT);
 		if (error != 0)
 			goto out;
@@ -6622,17 +6627,17 @@ iwm_dev_check(device_t dev)
 	switch (pci_get_device(dev)) {
 	case PCI_PRODUCT_INTEL_WL_3160_1:
 	case PCI_PRODUCT_INTEL_WL_3160_2:
-		sc->sc_fwname = "iwm-3160-9";
+		sc->sc_fwname = "iwm3160fw";
 		sc->host_interrupt_operation_mode = 1;
 		return (0);
 	case PCI_PRODUCT_INTEL_WL_7260_1:
 	case PCI_PRODUCT_INTEL_WL_7260_2:
-		sc->sc_fwname = "iwm-7260-9";
+		sc->sc_fwname = "iwm7260fw";
 		sc->host_interrupt_operation_mode = 1;
 		return (0);
 	case PCI_PRODUCT_INTEL_WL_7265_1:
 	case PCI_PRODUCT_INTEL_WL_7265_2:
-		sc->sc_fwname = "iwm-7265-9";
+		sc->sc_fwname = "iwm7265fw";
 		sc->host_interrupt_operation_mode = 0;
 		return (0);
 	default:
