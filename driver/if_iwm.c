@@ -6283,14 +6283,6 @@ iwm_notif_intr(struct iwm_softc *sc)
 			struct iwm_missed_beacons_notif *resp;
 			int missed;
 
-			/*
-			 * XXX TODO: this doesn't yet work - there are no
-			 * missed beacon notifications being generated.
-			 * I think it's likely due to some incorrect beacon
-			 * configuration code in the mac context setup
-			 * path.
-			 */
-
 			/* XXX look at mac_id to determine interface ID */
 			struct ieee80211com *ic = sc->sc_ic;
 			struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
