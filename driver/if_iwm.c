@@ -6273,9 +6273,52 @@ iwm_notif_intr(struct iwm_softc *sc)
 			iwm_mvm_rx_tx_cmd(sc, pkt, data);
 			break;
 
-		case IWM_MISSED_BEACONS_NOTIFICATION:
-			/* OpenBSD does not provide ieee80211_beacon_miss() */
-			break;
+		case IWM_MISSED_BEACONS_NOTIFICATION: {
+			struct iwm_missed_beacons_notif *resp;
+			int missed;
+
+			/*
+			 * XXX TODO: this doesn't yet work - there are no
+			 * missed beacon notifications being generated.
+			 * I think it's likely due to some incorrect beacon
+			 * configuration code in the mac context setup
+			 * path.
+			 */
+
+			/* XXX look at mac_id to determine interface ID */
+			struct ieee80211com *ic = sc->sc_ic;
+			struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
+
+			SYNC_RESP_STRUCT(resp, pkt);
+			missed = le32toh(resp->consec_missed_beacons);
+
+			IWM_DPRINTF(sc, IWM_DEBUG_BEACON | IWM_DEBUG_STATE,
+			    "%s: MISSED_BEACON: mac_id=%d, "
+			    "consec_since_last_rx=%d, consec=%d, num_expect=%d "
+			    "num_rx=%d\n",
+			    __func__,
+			    le32toh(resp->mac_id),
+			    le32toh(resp->consec_missed_beacons_since_last_rx),
+			    le32toh(resp->consec_missed_beacons),
+			    le32toh(resp->num_expected_beacons),
+			    le32toh(resp->num_recvd_beacons));
+
+			/* Be paranoid */
+			if (vap == NULL)
+				break;
+
+			/* XXX no net80211 locking? */
+			if (vap->iv_state == IEEE80211_S_RUN &&
+			    (ic->ic_flags & IEEE80211_F_SCAN) == 0) {
+				if (missed > vap->iv_bmissthreshold) {
+					/* XXX bad locking; turn into task */
+					IWM_UNLOCK(sc);
+					ieee80211_beacon_miss(ic);
+					IWM_LOCK(sc);
+				}
+			}
+
+			break; }
 
 		case IWM_MVM_ALIVE: {
 			struct iwm_mvm_alive_resp *resp;
