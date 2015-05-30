@@ -5128,12 +5128,15 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 
-
 	/* will this work? */
 	dtim_period = vap->iv_dtim_period;
 	dtim_count = vap->iv_dtim_count;
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET,
-	    "dtim %d %d\n", dtim_period, dtim_count);
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON,
+	    "DTIM: period=%d count=%d\n", dtim_period, dtim_count);
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON,
+	    "BEACON: tsf: %llu, ni_intval=%d\n",
+	    (unsigned long long) le64toh(ni->ni_tstamp.tsf),
+	    ni->ni_intval);
 
 	/* We need the dtim_period to set the MAC as associated */
 	if (in->in_assoc && dtim_period && !force_assoc_off) {
@@ -5159,8 +5162,11 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 		/* convert TU to usecs */
 		dtim_offs *= 1024;
 
-		/* XXX: byte order? */
-		tsf = ni->ni_tstamp.tsf;
+		/*
+		 * net80211: TSF is in 802.11 order, so convert up to local
+		 * ordering before we manipulate things.
+		 */
+		tsf = le64toh(ni->ni_tstamp.tsf);
 
 		ctxt_sta->dtim_tsf = htole64(tsf + dtim_offs);
 		ctxt_sta->dtim_time = htole32(tsf + dtim_offs);
