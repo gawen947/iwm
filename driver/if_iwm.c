@@ -5163,7 +5163,7 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 		tsf = ni->ni_tstamp.tsf;
 
 		ctxt_sta->dtim_tsf = htole64(tsf + dtim_offs);
-		ctxt_sta->dtim_time = htole64(ni->ni_tstamp.tsf + dtim_offs);
+		ctxt_sta->dtim_time = htole32(tsf + dtim_offs);
 
 		IWM_DPRINTF(sc, IWM_DEBUG_RESET,
 		    "DTIM TBTT is 0x%llx/0x%x, offset %d\n",
