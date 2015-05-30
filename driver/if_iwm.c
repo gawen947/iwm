@@ -3542,6 +3542,14 @@ iwm_mvm_phy_ctxt_cmd_hdr(struct iwm_softc *sc, struct iwm_mvm_phy_ctxt *ctxt,
 {
 	memset(cmd, 0, sizeof(struct iwm_phy_context_cmd));
 
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD,
+	    "%s: id=%d, colour=%d, action=%d, apply_time=%d\n",
+	    __func__,
+	    ctxt->id,
+	    ctxt->color,
+	    action,
+	    apply_time);
+
 	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(ctxt->id,
 	    ctxt->color));
 	cmd->action = htole32(action);
@@ -3558,6 +3566,18 @@ iwm_mvm_phy_ctxt_cmd_data(struct iwm_softc *sc,
 {
 	struct ieee80211com *ic = sc->sc_ic;
 	uint8_t active_cnt, idle_cnt;
+
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD,
+	    "%s: 2ghz=%d, channel=%d, chains static=0x%x, dynamic=0x%x, "
+	    "rx_ant=0x%x, tx_ant=0x%x\n",
+	    __func__,
+	    !! IEEE80211_IS_CHAN_2GHZ(chan),
+	    ieee80211_chan2ieee(ic, chan),
+	    chains_static,
+	    chains_dynamic,
+	    IWM_FW_VALID_RX_ANT(sc),
+	    IWM_FW_VALID_TX_ANT(sc));
+
 
 	cmd->ci.band = IEEE80211_IS_CHAN_2GHZ(chan) ?
 	    IWM_PHY_BAND_24 : IWM_PHY_BAND_5;
@@ -3594,6 +3614,10 @@ iwm_mvm_phy_ctxt_apply(struct iwm_softc *sc,
 	struct iwm_phy_context_cmd cmd;
 	int ret;
 
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD,
+	    "%s: called\n",
+	    __func__);
+
 	/* Set the command header fields */
 	iwm_mvm_phy_ctxt_cmd_hdr(sc, ctxt, &cmd, action, apply_time);
 
@@ -3619,6 +3643,12 @@ iwm_mvm_phy_ctxt_add(struct iwm_softc *sc, struct iwm_mvm_phy_ctxt *ctxt,
 	uint8_t chains_static, uint8_t chains_dynamic)
 {
 	ctxt->channel = chan;
+
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD,
+	    "%s: called; channel=%d\n",
+	    __func__,
+	    ieee80211_chan2ieee(sc->sc_ic, chan));
+
 	return iwm_mvm_phy_ctxt_apply(sc, ctxt,
 	    chains_static, chains_dynamic, IWM_FW_CTXT_ACTION_ADD, 0);
 }
@@ -3634,6 +3664,12 @@ iwm_mvm_phy_ctxt_changed(struct iwm_softc *sc,
 	uint8_t chains_static, uint8_t chains_dynamic)
 {
 	ctxt->channel = chan;
+
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD,
+	    "%s: called; channel=%d\n",
+	    __func__,
+	    ieee80211_chan2ieee(sc->sc_ic, chan));
+
 	return iwm_mvm_phy_ctxt_apply(sc, ctxt,
 	    chains_static, chains_dynamic, IWM_FW_CTXT_ACTION_MODIFY, 0);
 }
@@ -5131,9 +5167,11 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	/* will this work? */
 	dtim_period = vap->iv_dtim_period;
 	dtim_count = vap->iv_dtim_count;
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON,
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON | IWM_DEBUG_CMD,
+	    "%s: force_assoc_off=%d\n", __func__, force_assoc_off);
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON | IWM_DEBUG_CMD,
 	    "DTIM: period=%d count=%d\n", dtim_period, dtim_count);
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON,
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON | IWM_DEBUG_CMD,
 	    "BEACON: tsf: %llu, ni_intval=%d\n",
 	    (unsigned long long) le64toh(ni->ni_tstamp.tsf),
 	    ni->ni_intval);
@@ -5171,7 +5209,7 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 		ctxt_sta->dtim_tsf = htole64(tsf + dtim_offs);
 		ctxt_sta->dtim_time = htole32(tsf + dtim_offs);
 
-		IWM_DPRINTF(sc, IWM_DEBUG_RESET,
+		IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_BEACON | IWM_DEBUG_CMD,
 		    "DTIM TBTT is 0x%llx/0x%x, offset %d\n",
 		    (long long)le64toh(ctxt_sta->dtim_tsf),
 		    le32toh(ctxt_sta->dtim_time), dtim_offs);
@@ -5181,6 +5219,14 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 		ctxt_sta->is_assoc = htole32(0);
 	}
 
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD | IWM_DEBUG_BEACON,
+	    "%s: ni_intval: %d, bi_reciprocal: %d, dtim_interval: %d, dtim_reciprocal: %d\n",
+	    __func__,
+	    ni->ni_intval,
+	    iwm_mvm_reciprocal(ni->ni_intval),
+	    ni->ni_intval * dtim_period,
+	    iwm_mvm_reciprocal(ni->ni_intval * dtim_period));
+
 	ctxt_sta->bi = htole32(ni->ni_intval);
 	ctxt_sta->bi_reciprocal = htole32(iwm_mvm_reciprocal(ni->ni_intval));
 	ctxt_sta->dtim_interval = htole32(ni->ni_intval * dtim_period);
@@ -5189,6 +5235,8 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 
 	/* 10 = CONN_MAX_LISTEN_INTERVAL */
 	ctxt_sta->listen_interval = htole32(10);
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD | IWM_DEBUG_BEACON,
+	    "%s: associd=%d\n", __func__, ni->ni_associd);
 	ctxt_sta->assoc_id = htole32(ni->ni_associd);
 }
 
@@ -5199,6 +5247,9 @@ iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct iwm_node *in,
 	struct iwm_mac_ctx_cmd cmd;
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
+
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET,
+	    "%s: called; action=%d\n", __func__, action);
 
 	memset(&cmd, 0, sizeof(cmd));
 
@@ -5633,7 +5684,9 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 	int error;
 
 	IWM_DPRINTF(sc, IWM_DEBUG_STATE,
-	    "switching state %d->%d\n", vap->iv_state, nstate);
+	    "switching state %s -> %s\n",
+	    ieee80211_state_name[vap->iv_state],
+	    ieee80211_state_name[nstate]);
 	IEEE80211_UNLOCK(ic);
 	IWM_LOCK(sc);
 	/* disable beacon filtering if we're hopping out of RUN */
