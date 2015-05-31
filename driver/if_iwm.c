@@ -4696,8 +4696,8 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	if (in->in_assoc) {
 		IEEE80211_ADDR_COPY(cmd->bssid_addr, ni->ni_bssid);
 	} else {
-		/* XXX linux sets this to the broadcast address? */
-		memset(cmd->bssid_addr, 0, sizeof(cmd->bssid_addr));
+		/* eth broadcast address */
+		memset(cmd->bssid_addr, 0xff, sizeof(cmd->bssid_addr));
 	}
 
 	/*
