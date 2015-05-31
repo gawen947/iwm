@@ -3,7 +3,7 @@
 KMOD=	if_iwm
 # Main driver
 SRCS=	if_iwm.c if_iwm_binding.c if_iwm_util.c if_iwm_phy_db.c
-SRCS+=	if_iwm_mac_ctxt.c
+SRCS+=	if_iwm_mac_ctxt.c if_iwm_phy_ctxt.c
 # bus layer
 SRCS+=	if_iwm_pcie_trans.c
 

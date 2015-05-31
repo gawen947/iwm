@@ -5309,4 +5309,11 @@ iwm_rx_packet_payload_len(const struct iwm_rx_packet *pkt)
 	bus_space_barrier((sc)->sc_st, (sc)->sc_sh, 0, (sc)->sc_sz,	\
 	    BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE)
 
+#define IWM_FW_VALID_TX_ANT(sc) \
+    ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_TX_CHAIN) \
+    >> IWM_FW_PHY_CFG_TX_CHAIN_POS)
+#define IWM_FW_VALID_RX_ANT(sc) \
+    ((sc->sc_fw_phy_config & IWM_FW_PHY_CFG_RX_CHAIN) \
+    >> IWM_FW_PHY_CFG_RX_CHAIN_POS)
+
 #endif	/* __IF_IWM_REG_H__ */
