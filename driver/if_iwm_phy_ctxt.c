@@ -247,8 +247,9 @@ iwm_mvm_phy_ctxt_apply(struct iwm_softc *sc,
 	int ret;
 
 	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD,
-	    "%s: called\n",
-	    __func__);
+	    "%s: called; channel=%p\n",
+	    __func__,
+	    ctxt->channel);
 
 	/* Set the command header fields */
 	iwm_mvm_phy_ctxt_cmd_hdr(sc, ctxt, &cmd, action, apply_time);

@@ -4428,7 +4428,7 @@ iwm_start_locked(struct ifnet *ifp)
 	if ((ifp->if_drv_flags & (IFF_DRV_RUNNING | IFF_DRV_OACTIVE)) != IFF_DRV_RUNNING)
 		return;
 
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET, "->%s\n", __func__);
+	IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TRACE, "->%s\n", __func__);
 	for (;;) {
 		/* why isn't this done per-queue? */
 		if (sc->qfullmsk != 0) {
@@ -4449,7 +4449,7 @@ iwm_start_locked(struct ifnet *ifp)
 			sc->sc_tx_timer = 15;
 		}
 	}
-	IWM_DPRINTF(sc, IWM_DEBUG_RESET, "<-%s\n", __func__);
+	IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TRACE, "<-%s\n", __func__);
 
 	return;
 }
