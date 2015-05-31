@@ -6521,7 +6521,7 @@ iwm_attach(device_t dev)
 	    IEEE80211_C_WPA |		/* WPA/RSN */
 /*	    IEEE80211_C_WME |*/
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
-	    IEEE80211_C_SHPREAMBLE |	/* short preamble supported */
+	    IEEE80211_C_SHPREAMBLE	/* short preamble supported */
 //	    IEEE80211_C_BGSCAN		/* capable of bg scanning */
 	    ;
 	for (i = 0; i < nitems(sc->sc_phyctxt); i++) {
