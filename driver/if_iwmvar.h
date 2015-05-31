@@ -371,7 +371,8 @@ struct iwm_bf_data {
 
 struct iwm_vap {
 	struct ieee80211vap iv_vap;
-        uint8_t macaddr[IEEE80211_ADDR_LEN];
+	uint8_t macaddr[IEEE80211_ADDR_LEN];
+	int is_uploaded;
 
 	int (*iv_newstate)(struct ieee80211vap *, enum ieee80211_state, int);
 };

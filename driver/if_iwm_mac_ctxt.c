@@ -422,12 +422,12 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 }
 
 static int
-iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct iwm_node *in,
+iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct ieee80211vap *vap,
 	uint32_t action)
 {
+	struct ieee80211_node *ni = vap->iv_bss;
+	struct iwm_node *in = (struct iwm_node *) ni;
 	struct iwm_mac_ctx_cmd cmd;
-	struct ieee80211com *ic = sc->sc_ic;
-	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 
 	IWM_DPRINTF(sc, IWM_DEBUG_RESET,
 	    "%s: called; action=%d\n", __func__, action);
@@ -452,27 +452,52 @@ iwm_mvm_mac_ctxt_cmd_station(struct iwm_softc *sc, struct iwm_node *in,
 }
 
 static int
-iwm_mvm_mac_ctx_send(struct iwm_softc *sc, struct iwm_node *in, uint32_t action)
-{
-	return iwm_mvm_mac_ctxt_cmd_station(sc, in, action);
-}
-
-int
-iwm_mvm_mac_ctxt_add(struct iwm_softc *sc, struct iwm_node *in)
+iwm_mvm_mac_ctx_send(struct iwm_softc *sc, struct ieee80211vap *vap,
+    uint32_t action)
 {
 	int ret;
 
-	ret = iwm_mvm_mac_ctx_send(sc, in, IWM_FW_CTXT_ACTION_ADD);
+	ret = iwm_mvm_mac_ctxt_cmd_station(sc, vap, action);
 	if (ret)
-		return ret;
+		return (ret);
 
-	return 0;
+	return (0);
 }
 
 int
-iwm_mvm_mac_ctxt_changed(struct iwm_softc *sc, struct iwm_node *in)
+iwm_mvm_mac_ctxt_add(struct iwm_softc *sc, struct ieee80211vap *vap)
 {
-	return iwm_mvm_mac_ctx_send(sc, in, IWM_FW_CTXT_ACTION_MODIFY);
+	struct iwm_vap *iv = IWM_VAP(vap);
+	int ret;
+
+	if (iv->is_uploaded != 0) {
+		device_printf(sc->sc_dev, "%s: called; uploaded != 0\n",
+		    __func__);
+		return (EIO);
+	}
+
+	ret = iwm_mvm_mac_ctx_send(sc, vap, IWM_FW_CTXT_ACTION_ADD);
+	if (ret)
+		return (ret);
+	iv->is_uploaded = 1;
+	return (0);
+}
+
+int
+iwm_mvm_mac_ctxt_changed(struct iwm_softc *sc, struct ieee80211vap *vap)
+{
+	struct iwm_vap *iv = IWM_VAP(vap);
+	int ret;
+
+	if (iv->is_uploaded == 0) {
+		device_printf(sc->sc_dev, "%s: called; uploaded = 0\n",
+		    __func__);
+		return (EIO);
+	}
+	ret = iwm_mvm_mac_ctx_send(sc, vap, IWM_FW_CTXT_ACTION_MODIFY);
+	if (ret)
+		return (ret);
+	return (0);
 }
 
 #if 0

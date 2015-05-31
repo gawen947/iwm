@@ -1136,14 +1136,33 @@ iwm_ict_reset(struct iwm_softc *sc)
 
 /* iwlwifi pcie/trans.c */
 
+/*
+ * Since this .. hard-resets things, it's time to actually
+ * mark the first vap (if any) as having no mac context.
+ * It's annoying, but since the driver is potentially being
+ * stop/start'ed whilst active (thanks openbsd port!) we
+ * have to correctly track this.
+ */
 static void
 iwm_stop_device(struct iwm_softc *sc)
 {
+	struct ieee80211com *ic = sc->sc_ic;
+	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 	int chnl, ntries;
 	int qid;
 
 	/* tell the device to stop sending interrupts */
 	iwm_disable_interrupts(sc);
+
+	/*
+	 * FreeBSD-local: mark the first vap as not-uploaded,
+	 * so the next transition through auth/assoc
+	 * will correctly populate the MAC context.
+	 */
+	if (vap) {
+		struct iwm_vap *iv = IWM_VAP(vap);
+		iv->is_uploaded = 0;
+	}
 
 	/* device going down, Stop using ICT table */
 	sc->sc_flags &= ~IWM_FLAG_USE_ICT;
@@ -3808,6 +3827,7 @@ static int
 iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
 	struct iwm_node *in = (struct iwm_node *)vap->iv_bss;
+	struct iwm_vap *iv = IWM_VAP(vap);
 	uint32_t duration;
 	uint32_t min_duration;
 	int error;
@@ -3821,10 +3841,33 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 		return error;
 	}
 
-	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
-		device_printf(sc->sc_dev,
-		    "%s: failed to add MAC\n", __func__);
-		return error;
+	/*
+	 * This is where it deviates from what Linux does.
+	 *
+	 * Linux iwlwifi doesn't reset the nic each time, nor does it
+	 * call ctxt_add() here.  Instead, it adds it during vap creation,
+	 * and always does does a mac_ctx_changed().
+	 *
+	 * The openbsd port doesn't attempt to do that - it reset things
+	 * at odd states and does the add here.
+	 *
+	 * So, until the state handling is fixed (ie, we never reset
+	 * the NIC except for a firmware failure, which should drag
+	 * the NIC back to IDLE, re-setup and re-add all the mac/phy
+	 * contexts that are required), let's do a dirty hack here.
+	 */
+	if (vap->is_uploaded) {
+		if ((error = iwm_mvm_mac_ctxt_changed(sc, vap)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed to add MAC\n", __func__);
+			return error;
+		}
+	} else {
+		if ((error = iwm_mvm_mac_ctxt_add(sc, vap)) != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed to add MAC\n", __func__);
+			return error;
+		}
 	}
 
 	if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
@@ -3895,7 +3938,7 @@ iwm_assoc(struct ieee80211vap *vap, struct iwm_softc *sc)
 	}
 
 	in->in_assoc = 1;
-	if ((error = iwm_mvm_mac_ctxt_changed(sc, in)) != 0) {
+	if ((error = iwm_mvm_mac_ctxt_changed(sc, vap)) != 0) {
 		device_printf(sc->sc_dev,
 		    "%s: failed to update MAC\n", __func__);
 		return error;

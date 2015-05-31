@@ -105,8 +105,8 @@
 #ifndef	__IF_IWM_MAC_CTXT_H__
 #define	__IF_IWM_MAC_CTXT_H__
 
-extern	int iwm_mvm_mac_ctxt_add(struct iwm_softc *sc, struct iwm_node *in);
-extern	int iwm_mvm_mac_ctxt_changed(struct iwm_softc *sc, struct iwm_node *in);
-extern	int iwm_mvm_mac_ctxt_remove(struct iwm_softc *sc, struct iwm_node *in);
+extern	int iwm_mvm_mac_ctxt_add(struct iwm_softc *sc, struct ieee80211vap *vap);
+extern	int iwm_mvm_mac_ctxt_changed(struct iwm_softc *sc, struct ieee80211vap *vap);
+extern	int iwm_mvm_mac_ctxt_remove(struct iwm_softc *sc, struct ieee80211vap *vap);
 
 #endif	/* __IF_IWM_MAC_CTXT_H__ */
