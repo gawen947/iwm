@@ -384,7 +384,7 @@ static uint16_t iwm_mvm_fill_probe_req(struct iwm_softc *,
                                        int, const uint8_t *, int, int);
 static int	iwm_mvm_scan_request(struct iwm_softc *, int, int, uint8_t *,
                                      int);
-static void	iwm_mvm_ack_rates(struct iwm_softc *, struct iwm_node *, int *,
+static void	iwm_mvm_ack_rates(struct iwm_softc *, int, int *,
                                   int *);
 static void	iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *,
                                             struct iwm_node *,
@@ -4595,17 +4595,16 @@ iwm_mvm_scan_request(struct iwm_softc *sc, int flags,
  */
 
 static void
-iwm_mvm_ack_rates(struct iwm_softc *sc, struct iwm_node *in,
+iwm_mvm_ack_rates(struct iwm_softc *sc, int is2ghz,
 	int *cck_rates, int *ofdm_rates)
 {
-	struct ieee80211_node *ni = &in->in_ni;
 	int lowest_present_ofdm = 100;
 	int lowest_present_cck = 100;
 	uint8_t cck = 0;
 	uint8_t ofdm = 0;
 	int i;
 
-	if (IEEE80211_IS_CHAN_2GHZ(ni->ni_chan)) {
+	if (is2ghz) {
 		for (i = 0; i <= IWM_LAST_CCK_RATE; i++) {
 			cck |= (1 << i);
 			if (lowest_present_cck > i)
@@ -4684,6 +4683,7 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	struct ieee80211_node *ni = vap->iv_bss;
 	int cck_ack_rates, ofdm_ack_rates;
 	int i;
+	int is2ghz;
 
 	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id,
 	    in->in_color));
@@ -4696,9 +4696,19 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	if (in->in_assoc) {
 		IEEE80211_ADDR_COPY(cmd->bssid_addr, ni->ni_bssid);
 	} else {
+		/* XXX linux sets this to the broadcast address? */
 		memset(cmd->bssid_addr, 0, sizeof(cmd->bssid_addr));
 	}
-	iwm_mvm_ack_rates(sc, in, &cck_ack_rates, &ofdm_ack_rates);
+
+	/*
+	 * Default to 2ghz if no node information is given.
+	 */
+	if (in) {
+		is2ghz = !! IEEE80211_IS_CHAN_2GHZ(in->in_ni.ni_chan);
+	} else {
+		is2ghz = 1;
+	}
+	iwm_mvm_ack_rates(sc, is2ghz, &cck_ack_rates, &ofdm_ack_rates);
 	cmd->cck_rates = htole32(cck_ack_rates);
 	cmd->ofdm_rates = htole32(ofdm_ack_rates);
 
