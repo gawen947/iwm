@@ -509,13 +509,13 @@ struct iwm_softc {
 	int		sc_max_rssi;
 };
 
+#define	IWM_DEFAULT_MACID	0
+#define	IWM_DEFAULT_COLOR	0
+#define	IWM_DEFAULT_TSFID	0
+
 struct iwm_node {
 	struct ieee80211_node in_ni;
 	struct iwm_mvm_phy_ctxt *in_phyctxt;
-
-	uint16_t in_id;
-	uint16_t in_color;
-	int in_tsfid;
 
 	/* status "bits" */
 	int in_assoc;

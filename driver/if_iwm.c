@@ -2004,7 +2004,7 @@ iwm_mvm_protect_session(struct iwm_softc *sc, struct iwm_node *in,
 
 	time_cmd.action = htole32(IWM_FW_CTXT_ACTION_ADD);
 	time_cmd.id_and_color =
-	    htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id, in->in_color));
+	    htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID, IWM_DEFAULT_COLOR));
 	time_cmd.id = htole32(IWM_TE_BSS_STA_AGGRESSIVE_ASSOC);
 
 	time_cmd.apply_time = htole32(iwm_read_prph(sc,
@@ -3073,7 +3073,9 @@ iwm_mvm_binding_cmd(struct iwm_softc *sc, struct iwm_node *in, uint32_t action)
 	cmd.action = htole32(action);
 	cmd.phy = htole32(IWM_FW_CMD_ID_AND_COLOR(phyctxt->id, phyctxt->color));
 
-	cmd.macs[0] = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id, in->in_color));
+	cmd.macs[0] = htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID,
+	    IWM_DEFAULT_COLOR));
+	/* We use MACID 0 here.. */
 	for (i = 1; i < IWM_MAX_MACS_IN_BINDING; i++)
 		cmd.macs[i] = htole32(IWM_FW_CTXT_INVALID);
 
@@ -4014,8 +4016,8 @@ iwm_mvm_power_build_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	struct ieee80211com *ic = sc->sc_ic;
 	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
 
-	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id,
-	    in->in_color));
+	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID,
+	    IWM_DEFAULT_COLOR));
 	dtimper = vap->iv_dtim_period ?: 1;
 
 	/*
@@ -4177,7 +4179,8 @@ iwm_mvm_sta_send_to_fw(struct iwm_softc *sc, struct iwm_node *in, int update)
 
 	add_sta_cmd.sta_id = IWM_STATION_ID;
 	add_sta_cmd.mac_id_n_color
-	    = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id, in->in_color));
+	    = htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID,
+	        IWM_DEFAULT_COLOR));
 	if (!update) {
 		add_sta_cmd.tfd_queue_msk = htole32(0xf);
 		IEEE80211_ADDR_COPY(&add_sta_cmd.addr, in->in_ni.ni_bssid);
@@ -4685,12 +4688,29 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	int i;
 	int is2ghz;
 
-	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id,
-	    in->in_color));
+	/*
+	 * id is the MAC address ID - something to do with MAC filtering.
+	 * color - not sure.
+	 *
+	 * These are both functions of the vap, not of the node.
+	 * So, for now, hard-code both to 0 (default).
+	 */
+	cmd->id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID,
+	    IWM_DEFAULT_COLOR));
 	cmd->action = htole32(action);
 
 	cmd->mac_type = htole32(IWM_FW_MAC_TYPE_BSS_STA);
-	cmd->tsf_id = htole32(in->in_tsfid);
+
+	/*
+	 * The TSF ID is one of four TSF tracking resources in the firmware.
+	 * Read the iwlwifi/mvm code for more details.
+	 *
+	 * For now, just hard-code it to TSF tracking ID 0; we only support
+	 * a single STA mode VAP.
+	 *
+	 * It's per-vap, not per-node.
+	 */
+	cmd->tsf_id = htole32(IWM_DEFAULT_TSFID);
 
 	IEEE80211_ADDR_COPY(cmd->node_addr, sc->sc_bssid);
 	if (in->in_assoc) {
@@ -4905,8 +4925,8 @@ iwm_mvm_mac_ctxt_remove(struct iwm_softc *sc, struct iwm_node *in)
 
 	memset(&cmd, 0, sizeof(cmd));
 
-	cmd.id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(in->in_id,
-	    in->in_color));
+	cmd.id_and_color = htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID,
+	    IWM_DEFAULT_COLOR));
 	cmd.action = htole32(IWM_FW_CTXT_ACTION_REMOVE);
 
 	ret = iwm_mvm_send_cmd_pdu(sc,
@@ -5190,7 +5210,6 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 		return;
 	}
 
-	/* XXX doesn't explicitly in_id to the node */
 	/*
 	 * XXX .. and most of iwm_node is not initialised explicitly;
 	 * it's all just 0x0 passed to the firmware.
