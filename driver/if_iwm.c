@@ -4709,6 +4709,7 @@ iwm_mvm_mac_ctxt_cmd_common(struct iwm_softc *sc, struct iwm_node *in,
 	    = htole32((ic->ic_flags & IEEE80211_F_SHSLOT)
 	      ? IWM_MAC_FLG_SHORT_SLOT : 0);
 
+	/* XXX TODO: set wme parameters; also handle getting updated wme parameters */
 	for (i = 0; i < IWM_AC_NUM+1; i++) {
 		int txf = i;
 
@@ -5178,6 +5179,12 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 		    "only %zu\n", __func__, nrates, nitems(lq->rs_table));
 		return;
 	}
+
+	/* XXX doesn't explicitly in_id to the node */
+	/*
+	 * XXX .. and most of iwm_node is not initialised explicitly;
+	 * it's all just 0x0 passed to the firmware.
+	 */
 
 	/* first figure out which rates we should support */
 	memset(&in->in_ridx, -1, sizeof(in->in_ridx));
