@@ -62,6 +62,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
+#ifndef	__IF_IWM_REG_H__
+#define	__IF_IWM_REG_H__
 
 #define	le16_to_cpup(_a_)	(le16toh(*(const uint16_t *)(_a_)))
 #define	le32_to_cpup(_a_)	(le32toh(*(const uint32_t *)(_a_)))
@@ -5306,3 +5308,5 @@ iwm_rx_packet_payload_len(const struct iwm_rx_packet *pkt)
 #define IWM_BARRIER_READ_WRITE(sc)					\
 	bus_space_barrier((sc)->sc_st, (sc)->sc_sh, 0, (sc)->sc_sz,	\
 	    BUS_SPACE_BARRIER_READ | BUS_SPACE_BARRIER_WRITE)
+
+#endif	/* __IF_IWM_REG_H__ */
