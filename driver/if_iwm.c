@@ -3856,7 +3856,7 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 	 * the NIC back to IDLE, re-setup and re-add all the mac/phy
 	 * contexts that are required), let's do a dirty hack here.
 	 */
-	if (vap->is_uploaded) {
+	if (iv->is_uploaded) {
 		if ((error = iwm_mvm_mac_ctxt_changed(sc, vap)) != 0) {
 			device_printf(sc->sc_dev,
 			    "%s: failed to add MAC\n", __func__);
@@ -4197,6 +4197,17 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			.flags = IWM_CMD_SYNC,
 		};
 
+		/* Update the association state, now we have it all */
+		/* (eg associd comes in at this point */
+		error = iwm_assoc(vap, sc);
+		if (error != 0) {
+			device_printf(sc->sc_dev,
+			    "%s: failed to update association state: %d\n",
+			    __func__,
+			    error);
+			break;
+		}
+
 		in = (struct iwm_node *)vap->iv_bss;
 		iwm_mvm_power_mac_update_mode(sc, in);
 		iwm_mvm_enable_beacon_filter(sc, in);
@@ -4208,6 +4219,7 @@ iwm_newstate(struct ieee80211vap *vap, enum ieee80211_state nstate, int arg)
 			device_printf(sc->sc_dev,
 			    "%s: IWM_LQ_CMD failed\n", __func__);
 		}
+
 		break;
 	}
 

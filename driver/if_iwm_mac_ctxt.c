@@ -417,8 +417,8 @@ iwm_mvm_mac_ctxt_cmd_fill_sta(struct iwm_softc *sc, struct iwm_node *in,
 	/* 10 = CONN_MAX_LISTEN_INTERVAL */
 	ctxt_sta->listen_interval = htole32(10);
 	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_CMD | IWM_DEBUG_BEACON,
-	    "%s: associd=%d\n", __func__, ni->ni_associd);
-	ctxt_sta->assoc_id = htole32(ni->ni_associd);
+	    "%s: associd=%d\n", __func__, IEEE80211_AID(ni->ni_associd));
+	ctxt_sta->assoc_id = htole32(IEEE80211_AID(ni->ni_associd));
 }
 
 static int
