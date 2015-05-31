@@ -151,6 +151,9 @@ __FBSDID("$FreeBSD$");
 #include <if_iwmreg.h>
 #include <if_iwmvar.h>
 #include <if_iwm_debug.h>
+#include <if_iwm_util.h>
+#include <if_iwm_binding.h>
+
 #include <if_iwm_pcie_trans.h>
 
 const uint8_t iwm_nvm_channels[] = {
@@ -194,7 +197,6 @@ static int	iwm_set_default_calib(struct iwm_softc *, const void *);
 static void	iwm_fw_info_free(struct iwm_fw_info *);
 static int	iwm_read_firmware(struct iwm_softc *, enum iwm_ucode_type);
 static void	iwm_dma_map_addr(void *, bus_dma_segment_t *, int, int);
-static void	iwm_dma_map_mem(void *, bus_dma_segment_t *, int, int);
 static int	iwm_dma_contig_alloc(bus_dma_tag_t, struct iwm_dma_info *,
                                      bus_size_t, bus_size_t);
 static void	iwm_dma_contig_free(struct iwm_dma_info *);
@@ -293,11 +295,6 @@ static void	iwm_mvm_rx_tx_cmd_single(struct iwm_softc *,
 				         struct iwm_node *);
 static void	iwm_mvm_rx_tx_cmd(struct iwm_softc *, struct iwm_rx_packet *,
                                   struct iwm_rx_data *);
-static int	iwm_mvm_binding_cmd(struct iwm_softc *, struct iwm_node *,
-                                    uint32_t);
-static int	iwm_mvm_binding_update(struct iwm_softc *, struct iwm_node *,
-                                       int);
-static int	iwm_mvm_binding_add_vif(struct iwm_softc *, struct iwm_node *);
 static void	iwm_mvm_phy_ctxt_cmd_hdr(struct iwm_softc *,
                                          struct iwm_mvm_phy_ctxt *,
 			                 struct iwm_phy_context_cmd *,
@@ -317,15 +314,6 @@ static int	iwm_mvm_phy_ctxt_changed(struct iwm_softc *,
                                          struct iwm_mvm_phy_ctxt *,
 				         struct ieee80211_channel *,
                                          uint8_t, uint8_t);
-static int	iwm_send_cmd(struct iwm_softc *, struct iwm_host_cmd *);
-static int	iwm_mvm_send_cmd_pdu(struct iwm_softc *, uint8_t, uint32_t,
-                                     uint16_t, const void *);
-static int	iwm_mvm_send_cmd_status(struct iwm_softc *,
-                                        struct iwm_host_cmd *,
-				        uint32_t *);
-static int	iwm_mvm_send_cmd_pdu_status(struct iwm_softc *, uint8_t,
-					    uint16_t, const void *, uint32_t *);
-static void	iwm_free_resp(struct iwm_softc *, struct iwm_host_cmd *);
 static void	iwm_cmd_done(struct iwm_softc *, struct iwm_rx_packet *);
 #if 0
 static void	iwm_update_sched(struct iwm_softc *, int, int, uint8_t,
@@ -807,19 +795,6 @@ iwm_dma_map_addr(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
                 return;
 	KASSERT(nsegs == 1, ("too many DMA segments, %d should be 1", nsegs));
         *(bus_addr_t *)arg = segs[0].ds_addr;
-}
-
-static void
-iwm_dma_map_mem(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
-{
-        if (error != 0)
-                return;
-	KASSERT(nsegs <= 2, ("too many DMA segments, %d should be <= 2",
-	    nsegs));
-	if (nsegs > 1)
-		KASSERT(segs[1].ds_addr == segs[0].ds_addr + segs[0].ds_size,
-		    ("fragmented DMA memory"));
-	*(bus_addr_t *)arg = segs[0].ds_addr;
 }
 
 static int
@@ -3055,68 +3030,6 @@ iwm_mvm_rx_tx_cmd(struct iwm_softc *sc,
 }
 
 /*
- * BEGIN iwlwifi/mvm/binding.c
- */
-
-static int
-iwm_mvm_binding_cmd(struct iwm_softc *sc, struct iwm_node *in, uint32_t action)
-{
-	struct iwm_binding_cmd cmd;
-	struct iwm_mvm_phy_ctxt *phyctxt = in->in_phyctxt;
-	int i, ret;
-	uint32_t status;
-
-	memset(&cmd, 0, sizeof(cmd));
-
-	cmd.id_and_color
-	    = htole32(IWM_FW_CMD_ID_AND_COLOR(phyctxt->id, phyctxt->color));
-	cmd.action = htole32(action);
-	cmd.phy = htole32(IWM_FW_CMD_ID_AND_COLOR(phyctxt->id, phyctxt->color));
-
-	cmd.macs[0] = htole32(IWM_FW_CMD_ID_AND_COLOR(IWM_DEFAULT_MACID,
-	    IWM_DEFAULT_COLOR));
-	/* We use MACID 0 here.. */
-	for (i = 1; i < IWM_MAX_MACS_IN_BINDING; i++)
-		cmd.macs[i] = htole32(IWM_FW_CTXT_INVALID);
-
-	status = 0;
-	ret = iwm_mvm_send_cmd_pdu_status(sc, IWM_BINDING_CONTEXT_CMD,
-	    sizeof(cmd), &cmd, &status);
-	if (ret) {
-		IWM_DPRINTF(sc, IWM_DEBUG_CMD | IWM_DEBUG_RESET,
-		    "%s: Failed to send binding (action:%d): %d\n",
-		    __func__, action, ret);
-		return ret;
-	}
-
-	if (status) {
-		IWM_DPRINTF(sc, IWM_DEBUG_CMD | IWM_DEBUG_RESET,
-		    "%s: Binding command failed: %u\n",
-		    __func__,
-		    status);
-		ret = EIO;
-	}
-
-	return ret;
-}
-
-static int
-iwm_mvm_binding_update(struct iwm_softc *sc, struct iwm_node *in, int add)
-{
-	return iwm_mvm_binding_cmd(sc, in, IWM_FW_CTXT_ACTION_ADD);
-}
-
-static int
-iwm_mvm_binding_add_vif(struct iwm_softc *sc, struct iwm_node *in)
-{
-	return iwm_mvm_binding_update(sc, in, IWM_FW_CTXT_ACTION_ADD);
-}
-
-/*
- * END iwlwifi/mvm/binding.c
- */
-
-/*
  * BEGIN iwlwifi/mvm/phy-ctxt.c
  */
 
@@ -3268,241 +3181,6 @@ iwm_mvm_phy_ctxt_changed(struct iwm_softc *sc,
 /*
  * transmit side
  */
-
-/*
- * Send a command to the firmware.  We try to implement the Linux
- * driver interface for the routine.
- * mostly from if_iwn (iwn_cmd()).
- *
- * For now, we always copy the first part and map the second one (if it exists).
- */
-static int
-iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
-{
-	struct iwm_tx_ring *ring = &sc->txq[IWM_MVM_CMD_QUEUE];
-	struct iwm_tfd *desc;
-	struct iwm_tx_data *data;
-	struct iwm_device_cmd *cmd = NULL;
-	bus_addr_t paddr;
-	uint32_t addr_lo;
-	int error = 0, i, paylen, off;
-	int code;
-	int async, wantresp;
-
-	code = hcmd->id;
-	async = hcmd->flags & IWM_CMD_ASYNC;
-	wantresp = hcmd->flags & IWM_CMD_WANT_SKB;
-
-	for (i = 0, paylen = 0; i < nitems(hcmd->len); i++) {
-		paylen += hcmd->len[i];
-	}
-
-	/* if the command wants an answer, busy sc_cmd_resp */
-	if (wantresp) {
-		KASSERT(!async, ("invalid async parameter"));
-		while (sc->sc_wantresp != -1)
-			msleep(&sc->sc_wantresp, &sc->sc_mtx, 0, "iwmcmdsl", 0);
-		sc->sc_wantresp = ring->qid << 16 | ring->cur;
-		IWM_DPRINTF(sc, IWM_DEBUG_CMD,
-		    "wantresp is %x\n", sc->sc_wantresp);
-	}
-
-	/*
-	 * Is the hardware still available?  (after e.g. above wait).
-	 */
-	if (sc->sc_flags & IWM_FLAG_STOPPED) {
-		error = ENXIO;
-		goto out;
-	}
-
-	desc = &ring->desc[ring->cur];
-	data = &ring->data[ring->cur];
-
-	if (paylen > sizeof(cmd->data)) {
-		IWM_DPRINTF(sc, IWM_DEBUG_CMD,
-		    "large command paylen=%u len0=%u\n",
-			paylen, hcmd->len[0]);
-		/* Command is too large */
-		if (sizeof(cmd->hdr) + paylen > IWM_RBUF_SIZE) {
-			error = EINVAL;
-			goto out;
-		}
-		error = bus_dmamem_alloc(ring->data_dmat, (void **)&cmd,
-		    BUS_DMA_NOWAIT | BUS_DMA_COHERENT, &data->map);
-		if (error != 0)
-			goto out;
-		error = bus_dmamap_load(ring->data_dmat, data->map,
-		    cmd, paylen + sizeof(cmd->hdr), iwm_dma_map_mem,
-		    &paddr, BUS_DMA_NOWAIT);
-		if (error != 0)
-			goto out;
-	} else {
-		cmd = &ring->cmd[ring->cur];
-		paddr = data->cmd_paddr;
-	}
-
-	cmd->hdr.code = code;
-	cmd->hdr.flags = 0;
-	cmd->hdr.qid = ring->qid;
-	cmd->hdr.idx = ring->cur;
-
-	for (i = 0, off = 0; i < nitems(hcmd->data); i++) {
-		if (hcmd->len[i] == 0)
-			continue;
-		memcpy(cmd->data + off, hcmd->data[i], hcmd->len[i]);
-		off += hcmd->len[i];
-	}
-	KASSERT(off == paylen, ("off %d != paylen %d", off, paylen));
-
-	/* lo field is not aligned */
-	addr_lo = htole32((uint32_t)paddr);
-	memcpy(&desc->tbs[0].lo, &addr_lo, sizeof(uint32_t));
-	desc->tbs[0].hi_n_len  = htole16(iwm_get_dma_hi_addr(paddr)
-	    | ((sizeof(cmd->hdr) + paylen) << 4));
-	desc->num_tbs = 1;
-
-	IWM_DPRINTF(sc, IWM_DEBUG_CMD,
-	    "%s: iwm_send_cmd 0x%x size=%lu %s\n",
-	    __func__,
-	    code,
-	    (unsigned long) (hcmd->len[0] + hcmd->len[1] + sizeof(cmd->hdr)),
-	    async ? " (async)" : "");
-
-	if (hcmd->len[0] > sizeof(cmd->data)) {
-		bus_dmamap_sync(ring->data_dmat, data->map,
-		    BUS_DMASYNC_PREWRITE);
-	} else {
-		bus_dmamap_sync(ring->cmd_dma.tag, ring->cmd_dma.map,
-		    BUS_DMASYNC_PREWRITE);
-	}
-	bus_dmamap_sync(ring->desc_dma.tag, ring->desc_dma.map,
-	    BUS_DMASYNC_PREWRITE);
-
-	IWM_SETBITS(sc, IWM_CSR_GP_CNTRL,
-	    IWM_CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
-	if (!iwm_poll_bit(sc, IWM_CSR_GP_CNTRL,
-	    IWM_CSR_GP_CNTRL_REG_VAL_MAC_ACCESS_EN,
-	    (IWM_CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY |
-	     IWM_CSR_GP_CNTRL_REG_FLAG_GOING_TO_SLEEP), 15000)) {
-		device_printf(sc->sc_dev,
-		    "%s: acquiring device failed\n", __func__);
-		error = EBUSY;
-		goto out;
-	}
-
-#if 0
-	iwm_update_sched(sc, ring->qid, ring->cur, 0, 0);
-#endif
-	IWM_DPRINTF(sc, IWM_DEBUG_CMD,
-	    "sending command 0x%x qid %d, idx %d\n",
-	    code, ring->qid, ring->cur);
-
-	/* Kick command ring. */
-	ring->cur = (ring->cur + 1) % IWM_TX_RING_COUNT;
-	IWM_WRITE(sc, IWM_HBUS_TARG_WRPTR, ring->qid << 8 | ring->cur);
-
-	if (!async) {
-		/* m..m-mmyy-mmyyyy-mym-ym m-my generation */
-		int generation = sc->sc_generation;
-		error = msleep(desc, &sc->sc_mtx, PCATCH, "iwmcmd", hz);
-		if (error == 0) {
-			/* if hardware is no longer up, return error */
-			if (generation != sc->sc_generation) {
-				error = ENXIO;
-			} else {
-				hcmd->resp_pkt = (void *)sc->sc_cmd_resp;
-			}
-		}
-	}
- out:
-	if (cmd && paylen > sizeof(cmd->data))
-		bus_dmamem_free(ring->data_dmat, cmd, data->map);
-	if (wantresp && error != 0) {
-		iwm_free_resp(sc, hcmd);
-	}
-
-	return error;
-}
-
-/* iwlwifi: mvm/utils.c */
-static int
-iwm_mvm_send_cmd_pdu(struct iwm_softc *sc, uint8_t id,
-	uint32_t flags, uint16_t len, const void *data)
-{
-	struct iwm_host_cmd cmd = {
-		.id = id,
-		.len = { len, },
-		.data = { data, },
-		.flags = flags,
-	};
-
-	return iwm_send_cmd(sc, &cmd);
-}
-
-/* iwlwifi: mvm/utils.c */
-static int
-iwm_mvm_send_cmd_status(struct iwm_softc *sc,
-	struct iwm_host_cmd *cmd, uint32_t *status)
-{
-	struct iwm_rx_packet *pkt;
-	struct iwm_cmd_response *resp;
-	int error, resp_len;
-
-	KASSERT((cmd->flags & IWM_CMD_WANT_SKB) == 0,
-	    ("invalid command"));
-	cmd->flags |= IWM_CMD_SYNC | IWM_CMD_WANT_SKB;
-
-	if ((error = iwm_send_cmd(sc, cmd)) != 0)
-		return error;
-	pkt = cmd->resp_pkt;
-
-	/* Can happen if RFKILL is asserted */
-	if (!pkt) {
-		error = 0;
-		goto out_free_resp;
-	}
-
-	if (pkt->hdr.flags & IWM_CMD_FAILED_MSK) {
-		error = EIO;
-		goto out_free_resp;
-	}
-
-	resp_len = iwm_rx_packet_payload_len(pkt);
-	if (resp_len != sizeof(*resp)) {
-		error = EIO;
-		goto out_free_resp;
-	}
-
-	resp = (void *)pkt->data;
-	*status = le32toh(resp->status);
- out_free_resp:
-	iwm_free_resp(sc, cmd);
-	return error;
-}
-
-/* iwlwifi/mvm/utils.c */
-static int
-iwm_mvm_send_cmd_pdu_status(struct iwm_softc *sc, uint8_t id,
-	uint16_t len, const void *data, uint32_t *status)
-{
-	struct iwm_host_cmd cmd = {
-		.id = id,
-		.len = { len, },
-		.data = { data, },
-	};
-
-	return iwm_mvm_send_cmd_status(sc, &cmd, status);
-}
-
-static void
-iwm_free_resp(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
-{
-	KASSERT(sc->sc_wantresp != -1, ("already freed"));
-	KASSERT((hcmd->flags & (IWM_CMD_WANT_SKB|IWM_CMD_SYNC))
-	    == (IWM_CMD_WANT_SKB|IWM_CMD_SYNC), ("invalid flags"));
-	sc->sc_wantresp = -1;
-	wakeup(&sc->sc_wantresp);
-}
 
 /*
  * Process a "command done" firmware notification.  This is where we wakeup

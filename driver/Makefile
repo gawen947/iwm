@@ -1,7 +1,10 @@
 # $FreeBSD$
 
 KMOD=	if_iwm
-SRCS=	if_iwm.c if_iwm_pcie_trans.c
+# Main driver
+SRCS=	if_iwm.c if_iwm_binding.c if_iwm_util.c
+# bus layer
+SRCS+=	if_iwm_pcie_trans.c
 
 SRCS+=	device_if.h bus_if.h pci_if.h opt_wlan.h
 
