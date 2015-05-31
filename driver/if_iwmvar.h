@@ -151,6 +151,9 @@ struct iwm_tx_radiotap_header {
 #define IWM_FW_STATUS_INPROGRESS	1
 #define IWM_FW_STATUS_DONE		2
 
+#define	IWM_LOCK(_sc)	mtx_lock(&sc->sc_mtx)
+#define	IWM_UNLOCK(_sc)	mtx_unlock(&sc->sc_mtx)
+
 enum iwm_ucode_type {
 	IWM_UCODE_TYPE_INIT,
 	IWM_UCODE_TYPE_REGULAR,

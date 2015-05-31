@@ -63,6 +63,9 @@
  *
  *****************************************************************************/
 
+#define	le16_to_cpup(_a_)	(le16toh(*(const uint16_t *)(_a_)))
+#define	le32_to_cpup(_a_)	(le32toh(*(const uint32_t *)(_a_)))
+
 /*
  * BEGIN iwl-csr.h
  */
@@ -5263,14 +5266,14 @@ struct iwm_rx_packet {
 
 #define	IWM_FH_RSCSR_FRAME_SIZE_MSK	0x00003fff
 
-static uint32_t
+static inline uint32_t
 iwm_rx_packet_len(const struct iwm_rx_packet *pkt)
 {
 
 	return le32toh(pkt->len_n_flags) & IWM_FH_RSCSR_FRAME_SIZE_MSK;
 }
 
-static uint32_t
+static inline uint32_t
 iwm_rx_packet_payload_len(const struct iwm_rx_packet *pkt)
 {
 
