@@ -388,6 +388,7 @@ struct iwm_softc {
 
 	uint8_t sc_bssid[IEEE80211_ADDR_LEN];
 
+	struct intr_config_hook sc_preinit_hook;
 	struct mtx sc_mtx;
 	struct callout sc_watchdog_to;
 

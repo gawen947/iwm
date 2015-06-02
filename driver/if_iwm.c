@@ -364,6 +364,7 @@ static void	iwm_nic_error(struct iwm_softc *);
 static void	iwm_notif_intr(struct iwm_softc *);
 static void	iwm_intr(void *);
 static int	iwm_attach(device_t);
+static void	iwm_preinit(void *);
 static int	iwm_detach_local(struct iwm_softc *sc, int);
 static void	iwm_init_task(void *);
 static void	iwm_radiotap_attach(struct iwm_softc *);
@@ -5396,6 +5397,42 @@ iwm_attach(device_t dev)
 
 	/* Max RSSI */
 	sc->sc_max_rssi = IWM_MAX_DBM - IWM_MIN_DBM;
+	sc->sc_preinit_hook.ich_func = iwm_preinit;
+	sc->sc_preinit_hook.ich_arg = sc;
+	if (config_intrhook_establish(&sc->sc_preinit_hook) != 0) {
+		device_printf(dev, "config_intrhook_establish failed\n");
+		goto fail;
+	}
+
+#ifdef IWM_DEBUG
+	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
+	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO, "debug",
+	    CTLFLAG_RW, &sc->sc_debug, 0, "control debugging");
+#endif
+
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_TRACE,
+	    "<-%s\n", __func__);
+
+	return 0;
+
+	/* Free allocated memory if something failed during attachment. */
+fail:
+	iwm_detach_local(sc, 0);
+
+	return ENXIO;
+}
+
+static void
+iwm_preinit(void *arg)
+{
+	struct iwm_softc *sc = arg;
+	device_t dev = sc->sc_dev;
+	struct ieee80211com *ic = sc->sc_ic;
+	int error;
+
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_TRACE,
+	    "->%s\n", __func__);
+
 	IWM_LOCK(sc);
 	if ((error = iwm_start_hw(sc)) != 0) {
 		device_printf(dev, "could not initialize hardware\n");
@@ -5420,7 +5457,6 @@ iwm_attach(device_t dev)
 	if (!sc->sc_nvm.sku_cap_band_52GHz_enable)
 		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
-
 	IWM_UNLOCK(sc);
 
 	/*
@@ -5441,21 +5477,15 @@ iwm_attach(device_t dev)
 	iwm_radiotap_attach(sc);
 	if (bootverbose)
 		ieee80211_announce(ic);
-#ifdef IWM_DEBUG
-	SYSCTL_ADD_INT(device_get_sysctl_ctx(dev),
-	    SYSCTL_CHILDREN(device_get_sysctl_tree(dev)), OID_AUTO, "debug",
-	    CTLFLAG_RW, &sc->sc_debug, 0, "control debugging");
-#endif
+
 	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_TRACE,
 	    "<-%s\n", __func__);
+	config_intrhook_disestablish(&sc->sc_preinit_hook);
 
-	return 0;
-
-	/* Free allocated memory if something failed during attachment. */
+	return;
 fail:
+	config_intrhook_disestablish(&sc->sc_preinit_hook);
 	iwm_detach_local(sc, 0);
-
-	return ENXIO;
 }
 
 /*
