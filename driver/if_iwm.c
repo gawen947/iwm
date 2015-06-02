@@ -3826,11 +3826,24 @@ iwm_mvm_update_quotas(struct iwm_softc *sc, struct iwm_node *in)
 static int
 iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 {
-	struct iwm_node *in = (struct iwm_node *)vap->iv_bss;
+	struct ieee80211_node *ni;
+	struct iwm_node *in;
 	struct iwm_vap *iv = IWM_VAP(vap);
 	uint32_t duration;
 	uint32_t min_duration;
 	int error;
+
+	/*
+	 * XXX i have a feeling that the vap node is being
+	 * freed from underneath us. Grr.
+	 */
+	ni = ieee80211_ref_node(vap->iv_bss);
+	in = (struct iwm_node *) ni;
+	IWM_DPRINTF(sc, IWM_DEBUG_RESET | IWM_DEBUG_STATE,
+	    "%s: called; vap=%p, bss ni=%p\n",
+	    __func__,
+	    vap,
+	    ni);
 
 	in->in_assoc = 0;
 
@@ -3838,7 +3851,7 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 	if (error) {
 		device_printf(sc->sc_dev,
 		    "%s: failed to set multicast\n", __func__);
-		return error;
+		goto out;
 	}
 
 	/*
@@ -3860,13 +3873,13 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 		if ((error = iwm_mvm_mac_ctxt_changed(sc, vap)) != 0) {
 			device_printf(sc->sc_dev,
 			    "%s: failed to add MAC\n", __func__);
-			return error;
+			goto out;
 		}
 	} else {
 		if ((error = iwm_mvm_mac_ctxt_add(sc, vap)) != 0) {
 			device_printf(sc->sc_dev,
 			    "%s: failed to add MAC\n", __func__);
-			return error;
+			goto out;
 		}
 	}
 
@@ -3874,20 +3887,20 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 	    in->in_ni.ni_chan, 1, 1)) != 0) {
 		device_printf(sc->sc_dev,
 		    "%s: failed add phy ctxt\n", __func__);
-		return error;
+		goto out;
 	}
 	in->in_phyctxt = &sc->sc_phyctxt[0];
 
 	if ((error = iwm_mvm_binding_add_vif(sc, in)) != 0) {
 		device_printf(sc->sc_dev,
 		    "%s: binding cmd\n", __func__);
-		return error;
+		goto out;
 	}
 
 	if ((error = iwm_mvm_add_sta(sc, in)) != 0) {
 		device_printf(sc->sc_dev,
 		    "%s: failed to add MAC\n", __func__);
-		return error;
+		goto out;
 	}
 
 	/* a bit superfluous? */
@@ -3911,18 +3924,22 @@ iwm_auth(struct ieee80211vap *vap, struct iwm_softc *sc)
 		if (sc->sc_auth_prot == 0) {
 			device_printf(sc->sc_dev,
 			    "%s: missed auth window!\n", __func__);
-			return ETIMEDOUT;
+			error = ETIMEDOUT;
+			goto out;
 		} else if (sc->sc_auth_prot == -1) {
 			device_printf(sc->sc_dev,
 			    "%s: no time event, denied!\n", __func__);
 			sc->sc_auth_prot = 0;
-			return EAUTH;
+			error = EAUTH;
+			goto out;
 		}
 		msleep(&sc->sc_auth_prot, &sc->sc_mtx, 0, "iwmau2", 0);
 	}
 	IWM_DPRINTF(sc, IWM_DEBUG_RESET, "<-%s\n", __func__);
-
-	return 0;
+	error = 0;
+out:
+	ieee80211_free_node(ni);
+	return (error);
 }
 
 static int
@@ -5392,6 +5409,9 @@ iwm_attach(device_t dev)
 	    ;
 	for (i = 0; i < nitems(sc->sc_phyctxt); i++) {
 		sc->sc_phyctxt[i].id = i;
+		sc->sc_phyctxt[i].color = 0;
+		sc->sc_phyctxt[i].ref = 0;
+		sc->sc_phyctxt[i].channel = NULL;
 	}
 
 	/* Max RSSI */
