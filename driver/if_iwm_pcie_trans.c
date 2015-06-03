@@ -551,3 +551,15 @@ iwm_set_pwr(struct iwm_softc *sc)
 	iwm_set_bits_mask_prph(sc, IWM_APMG_PS_CTRL_REG,
 	    IWM_APMG_PS_CTRL_VAL_PWR_SRC_VMAIN, ~IWM_APMG_PS_CTRL_MSK_PWR_SRC);
 }
+
+/* iwlwifi pcie/rx.c */
+int
+iwm_pcie_rx_stop(struct iwm_softc *sc)
+{
+
+	IWM_WRITE(sc, IWM_FH_MEM_RCSR_CHNL0_CONFIG_REG, 0);
+	return (iwm_poll_bit(sc, IWM_FH_MEM_RSSR_RX_STATUS_REG,
+	    IWM_FH_RSSR_CHNL0_RX_STATUS_CHNL_IDLE,
+	    IWM_FH_RSSR_CHNL0_RX_STATUS_CHNL_IDLE,
+	    1000));
+}

@@ -126,5 +126,6 @@ extern	int iwm_apm_init(struct iwm_softc *sc);
 extern	void iwm_apm_stop(struct iwm_softc *sc);
 extern	int iwm_start_hw(struct iwm_softc *sc);
 extern	void iwm_set_pwr(struct iwm_softc *sc);
+extern	int iwm_pcie_rx_stop(struct iwm_softc *sc);
 
 #endif

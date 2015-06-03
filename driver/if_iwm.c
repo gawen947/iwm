@@ -891,16 +891,11 @@ fail:	iwm_free_rx_ring(sc, ring);
 static void
 iwm_reset_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 {
-	int ntries;
 
+	/* XXX print out if we can't lock the NIC? */
 	if (iwm_nic_lock(sc)) {
-		IWM_WRITE(sc, IWM_FH_MEM_RCSR_CHNL0_CONFIG_REG, 0);
-		for (ntries = 0; ntries < 1000; ntries++) {
-			if (IWM_READ(sc, IWM_FH_MEM_RSSR_RX_STATUS_REG) &
-			    IWM_FH_RSSR_CHNL0_RX_STATUS_CHNL_IDLE)
-				break;
-			DELAY(10);
-		}
+		/* XXX handle if RX stop doesn't finish? */
+		(void) iwm_pcie_rx_stop(sc);
 		iwm_nic_unlock(sc);
 	}
 	ring->cur = 0;
@@ -2864,8 +2859,19 @@ iwm_raw_xmit(struct ieee80211_node *ni, struct mbuf *m,
         return (error);
 }
 
+/*
+ * mvm/tx.c
+ */
+
 #if 0
-/* not necessary? */
+/*
+ * Note that there are transports that buffer frames before they reach
+ * the firmware. This means that after flush_tx_path is called, the
+ * queue might not be empty. The race-free way to handle this is to:
+ * 1) set the station as draining
+ * 2) flush the Tx path
+ * 3) wait for the transport queues to be empty
+ */
 int
 iwm_mvm_flush_tx_path(struct iwm_softc *sc, int tfd_msk, int sync)
 {
@@ -2884,7 +2890,6 @@ iwm_mvm_flush_tx_path(struct iwm_softc *sc, int tfd_msk, int sync)
 	return ret;
 }
 #endif
-
 
 /*
  * BEGIN mvm/sta.c
