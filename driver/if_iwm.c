@@ -172,6 +172,10 @@ const uint8_t iwm_nvm_channels[] = {
 };
 #define IWM_NUM_2GHZ_CHANNELS	14
 
+/*
+ * XXX For now, there's simply a fixed set of rate table entries
+ * that are populated.
+ */
 const struct iwm_rate {
 	uint8_t rate;
 	uint8_t plcp;
@@ -2545,6 +2549,31 @@ iwm_update_sched(struct iwm_softc *sc, int qid, int idx, uint8_t sta_id,
 #endif
 
 /*
+ * Take an 802.11 (non-n) rate, find the relevant rate
+ * table entry.  return the index into in_ridx[].
+ *
+ * The caller then uses that index back into in_ridx
+ * to figure out the rate index programmed /into/
+ * the firmware for this given node.
+ */
+static int
+iwm_tx_rateidx_lookup(struct iwm_softc *sc, struct iwm_node *in,
+    uint8_t rate)
+{
+	int i;
+	uint8_t r;
+
+	for (i = 0; i < nitems(in->in_ridx); i++) {
+		r = iwm_rates[in->in_ridx[i]].rate;
+		if (rate == r)
+			return (i);
+	}
+	/* XXX Return the first */
+	/* XXX TODO: have it return the /lowest/ */
+	return (0);
+}
+
+/*
  * Fill in various bit for management frames, and leave them
  * unfilled for data frames (firmware takes care of that).
  * Return the selected TX rate.
@@ -2558,29 +2587,64 @@ iwm_tx_fill_cmd(struct iwm_softc *sc, struct iwm_node *in,
 	const struct iwm_rate *rinfo;
 	int type = wh->i_fc[0] & IEEE80211_FC0_TYPE_MASK;
 	int ridx, rate_flags;
-	int nrates = ni->ni_rates.rs_nrates;
 
 	tx->rts_retry_limit = IWM_RTS_DFAULT_RETRY_LIMIT;
 	tx->data_retry_limit = IWM_DEFAULT_TX_RETRY;
 
-	if (type != IEEE80211_FC0_TYPE_DATA) {
-		/* for non-data, use the lowest supported rate */
-		ridx = (ic->ic_curmode == IEEE80211_MODE_11A) ?
-		    IWM_RIDX_OFDM : IWM_RIDX_CCK;
-	} else {
+	/*
+	 * XXX TODO: everything about the rate selection here is terrible!
+	 */
+
+	if (type == IEEE80211_FC0_TYPE_DATA) {
+		int i;
 		/* for data frames, use RS table */
-		tx->initial_rate_index = (nrates - 1) - ni->ni_txrate;
+		(void) ieee80211_ratectl_rate(ni, NULL, 0);
+		i = iwm_tx_rateidx_lookup(sc, in, ni->ni_txrate);
+		ridx = in->in_ridx[i];
+
+		/* This is the index into the programmed table */
+		tx->initial_rate_index = i;
 		tx->tx_flags |= htole32(IWM_TX_CMD_FLG_STA_RATE);
-		IWM_DPRINTF(sc, IWM_DEBUG_XMIT,
-		    "start with txrate %d\n", tx->initial_rate_index);
-		ridx = in->in_ridx[ni->ni_txrate];
+		IWM_DPRINTF(sc, IWM_DEBUG_XMIT | IWM_DEBUG_TXRATE,
+		    "%s: start with i=%d, txrate %d\n",
+		    __func__, i, iwm_rates[ridx].rate);
+		/* XXX no rate_n_flags? */
 		return &iwm_rates[ridx];
 	}
 
+	/*
+	 * For non-data, use the lowest supported rate for the given
+	 * operational mode.
+	 *
+	 * Note: there may not be any rate control information available.
+	 * This driver currently assumes if we're transmitting data
+	 * frames, use the rate control table.  Grr.
+	 *
+	 * XXX TODO: use the configured rate for the traffic type!
+	 */
+	if (ic->ic_curmode == IEEE80211_MODE_11A) {
+		/*
+		 * XXX this assumes the mode is either 11a or not 11a;
+		 * definitely won't work for 11n.
+		 */
+		ridx = IWM_RIDX_OFDM;
+	} else {
+		ridx = IWM_RIDX_CCK;
+	}
+
 	rinfo = &iwm_rates[ridx];
+
+	IWM_DPRINTF(sc, IWM_DEBUG_TXRATE, "%s: ridx=%d; rate=%d, CCK=%d\n",
+	    __func__, ridx,
+	    rinfo->rate,
+	    !! (IWM_RIDX_IS_CCK(ridx))
+	    );
+
+	/* XXX TODO: hard-coded TX antenna? */
 	rate_flags = 1 << IWM_RATE_MCS_ANT_POS;
 	if (IWM_RIDX_IS_CCK(ridx))
 		rate_flags |= IWM_RATE_MCS_CCK_MSK;
+	/* XXX hard-coded tx rate */
 	tx->rate_n_flags = htole32(rate_flags | rinfo->plcp);
 
 	return rinfo;
@@ -3345,7 +3409,10 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 	 */
 
 	/* first figure out which rates we should support */
+	/* XXX TODO: this isn't 11n aware /at all/ */
 	memset(&in->in_ridx, -1, sizeof(in->in_ridx));
+	IWM_DPRINTF(sc, IWM_DEBUG_TXRATE,
+	    "%s: nrates=%d\n", __func__, nrates);
 	for (i = 0; i < nrates; i++) {
 		int rate = ni->ni_rates.rs_rates[i] & IEEE80211_RATE_VAL;
 
@@ -3353,12 +3420,19 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 		for (ridx = 0; ridx <= IWM_RIDX_MAX; ridx++)
 			if (iwm_rates[ridx].rate == rate)
 				break;
-		if (ridx > IWM_RIDX_MAX)
+		if (ridx > IWM_RIDX_MAX) {
 			device_printf(sc->sc_dev,
 			    "%s: WARNING: device rate for %d not found!\n",
 			    __func__, rate);
-		else
+		} else {
+			IWM_DPRINTF(sc, IWM_DEBUG_TXRATE,
+			    "%s: rate: i: %d, rate=%d, ridx=%d\n",
+			    __func__,
+			    i,
+			    rate,
+			    ridx);
 			in->in_ridx[i] = ridx;
+		}
 	}
 
 	/* then construct a lq_cmd based on those */
@@ -3380,6 +3454,10 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 	 * Note that we add the rates in the highest rate first
 	 * (opposite of ni_rates).
 	 */
+	/*
+	 * XXX TODO: this should be looping over the min of nrates
+	 * and LQ_MAX_RETRY_NUM.  Sigh.
+	 */
 	for (i = 0; i < nrates; i++) {
 		int nextant;
 
@@ -3388,13 +3466,19 @@ iwm_setrates(struct iwm_softc *sc, struct iwm_node *in)
 		nextant = 1<<(ffs(txant)-1);
 		txant &= ~nextant;
 
+		/*
+		 * Map the rate id into a rate index into
+		 * our hardware table containing the
+		 * configuration to use for this rate.
+		 */
 		ridx = in->in_ridx[(nrates-1)-i];
 		tab = iwm_rates[ridx].plcp;
 		tab |= nextant << IWM_RATE_MCS_ANT_POS;
 		if (IWM_RIDX_IS_CCK(ridx))
 			tab |= IWM_RATE_MCS_CCK_MSK;
 		IWM_DPRINTF(sc, IWM_DEBUG_TXRATE,
-		    "station rate %d %x\n", i, tab);
+		    "station rate i=%d, rate=%d, hw=%x\n",
+		    i, iwm_rates[ridx].rate, tab);
 		lq->rs_table[i] = htole32(tab);
 	}
 	/* then fill the rest with the lowest possible rate */
@@ -4696,7 +4780,7 @@ iwm_attach(device_t dev)
 	ic->ic_caps =
 	    IEEE80211_C_STA |
 	    IEEE80211_C_WPA |		/* WPA/RSN */
-/*	    IEEE80211_C_WME |*/
+	    IEEE80211_C_WME |
 	    IEEE80211_C_SHSLOT |	/* short slot time supported */
 	    IEEE80211_C_SHPREAMBLE	/* short preamble supported */
 //	    IEEE80211_C_BGSCAN		/* capable of bg scanning */
@@ -4733,6 +4817,15 @@ fail:
 	iwm_detach_local(sc, 0);
 
 	return ENXIO;
+}
+
+static int
+iwm_update_edca(struct ieee80211com *ic)
+{
+	struct iwm_softc *sc = ic->ic_ifp->if_softc;
+
+	device_printf(sc->sc_dev, "%s: called\n", __func__);
+	return (0);
 }
 
 static void
@@ -4787,6 +4880,7 @@ iwm_preinit(void *arg)
 	ic->ic_set_channel = iwm_set_channel;
 	ic->ic_scan_curchan = iwm_scan_curchan;
 	ic->ic_scan_mindwell = iwm_scan_mindwell;
+	ic->ic_wme.wme_update = iwm_update_edca;
 	iwm_radiotap_attach(sc);
 	if (bootverbose)
 		ieee80211_announce(ic);
