@@ -170,9 +170,9 @@ __FBSDID("$FreeBSD$");
 
 #define IWM_PLCP_QUIET_THRESH 1
 #define IWM_ACTIVE_QUIET_TIME 10
-#define LONG_OUT_TIME_PERIOD 600
-#define SHORT_OUT_TIME_PERIOD 200
-#define SUSPEND_TIME_PERIOD 100
+#define LONG_OUT_TIME_PERIOD (600 * IEEE80211_DUR_TU)
+#define SHORT_OUT_TIME_PERIOD (200 * IEEE80211_DUR_TU)
+#define SUSPEND_TIME_PERIOD (100 * IEEE80211_DUR_TU)
 
 static uint16_t
 iwm_mvm_scan_rx_chain(struct iwm_softc *sc)
@@ -188,16 +188,14 @@ iwm_mvm_scan_rx_chain(struct iwm_softc *sc)
 	return htole16(rx_chain);
 }
 
-#define ieee80211_tu_to_usec(a) (1024*(a))
-
 static uint32_t
 iwm_mvm_scan_max_out_time(struct iwm_softc *sc, uint32_t flags, int is_assoc)
 {
 	if (!is_assoc)
 		return 0;
 	if (flags & 0x1)
-		return htole32(ieee80211_tu_to_usec(SHORT_OUT_TIME_PERIOD));
-	return htole32(ieee80211_tu_to_usec(LONG_OUT_TIME_PERIOD));
+		return htole32(SHORT_OUT_TIME_PERIOD);
+	return htole32(LONG_OUT_TIME_PERIOD);
 }
 
 static uint32_t
@@ -205,7 +203,7 @@ iwm_mvm_scan_suspend_time(struct iwm_softc *sc, int is_assoc)
 {
 	if (!is_assoc)
 		return 0;
-	return htole32(ieee80211_tu_to_usec(SUSPEND_TIME_PERIOD));
+	return htole32(SUSPEND_TIME_PERIOD);
 }
 
 static uint32_t
