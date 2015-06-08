@@ -2365,11 +2365,9 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		tap->wr_flags = 0;
 		if (phy_info->phy_flags & htole16(IWM_PHY_INFO_FLAG_SHPREAMBLE))
 			tap->wr_flags |= IEEE80211_RADIOTAP_F_SHORTPRE;
-		/* XXX is phy_info->channel correct as an index? */
-		tap->wr_chan_freq =
-		    htole16(ic->ic_channels[phy_info->channel].ic_freq);
-		tap->wr_chan_flags =
-		    htole16(ic->ic_channels[phy_info->channel].ic_flags);
+		tap->wr_chan_freq = htole16(rxs.c_freq);
+		/* XXX only if ic->ic_curchan->ic_ieee == rxs.c_ieee */
+		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
 		tap->wr_dbm_antsignal = (int8_t)rssi;
 		tap->wr_dbm_antnoise = (int8_t)sc->sc_noise;
 		tap->wr_tsft = phy_info->system_timestamp;
