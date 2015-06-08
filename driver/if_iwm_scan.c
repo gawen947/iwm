@@ -346,7 +346,7 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 	    IEEE80211_FC0_SUBTYPE_PROBE_REQ;
 	frame->i_fc[1] = IEEE80211_FC1_DIR_NODS;
 	IEEE80211_ADDR_COPY(frame->i_addr1, ifp->if_broadcastaddr);
-	memcpy(frame->i_addr2, ta, ETHER_ADDR_LEN);
+	IEEE80211_ADDR_COPY(frame->i_addr2, ta);
 	IEEE80211_ADDR_COPY(frame->i_addr3, ifp->if_broadcastaddr);
 
 	len += sizeof(*frame);
