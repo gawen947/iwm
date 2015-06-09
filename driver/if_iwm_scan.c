@@ -357,7 +357,7 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 	if (left < 0)
 		return 0;
 
-	ieee80211_add_ssid(pos, ssid, ssid_len);
+	pos = ieee80211_add_ssid(pos, ssid, ssid_len);
 
 	if (ie && ie_len && left >= ie_len) {
 		memcpy(pos, ie, ie_len);
