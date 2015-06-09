@@ -1758,7 +1758,7 @@ iwm_parse_nvm_data(struct iwm_softc *sc,
 	const uint16_t *nvm_calib, uint8_t tx_chains, uint8_t rx_chains)
 {
 	struct iwm_nvm_data *data = &sc->sc_nvm;
-	uint8_t hw_addr[ETHER_ADDR_LEN];
+	uint8_t hw_addr[IEEE80211_ADDR_LEN];
 	uint16_t radio_cfg, sku;
 
 	data->nvm_version = le16_to_cpup(nvm_sw + IWM_NVM_VERSION);
@@ -1790,7 +1790,7 @@ iwm_parse_nvm_data(struct iwm_softc *sc,
 	data->xtal_calib[1] = *(nvm_calib + IWM_XTAL_CALIB + 1);
 
 	/* The byte order is little endian 16 bit, meaning 214365 */
-	memcpy(hw_addr, nvm_hw + IWM_HW_ADDR, ETHER_ADDR_LEN);
+	IEEE80211_ADDR_COPY(hw_addr, nvm_hw + IWM_HW_ADDR);
 	data->hw_addr[0] = hw_addr[1];
 	data->hw_addr[1] = hw_addr[0];
 	data->hw_addr[2] = hw_addr[3];
@@ -2084,7 +2084,7 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 			device_printf(sc->sc_dev, "failed to read nvm\n");
 			return error;
 		}
-		memcpy(sc->sc_bssid, &sc->sc_nvm.hw_addr, ETHER_ADDR_LEN);
+		IEEE80211_ADDR_COPY(sc->sc_bssid, &sc->sc_nvm.hw_addr);
 
 		sc->sc_scan_cmd_len = sizeof(struct iwm_scan_cmd)
 		    + sc->sc_capa_max_probe_len
@@ -2365,11 +2365,9 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		tap->wr_flags = 0;
 		if (phy_info->phy_flags & htole16(IWM_PHY_INFO_FLAG_SHPREAMBLE))
 			tap->wr_flags |= IEEE80211_RADIOTAP_F_SHORTPRE;
-		/* XXX is phy_info->channel correct as an index? */
-		tap->wr_chan_freq =
-		    htole16(ic->ic_channels[phy_info->channel].ic_freq);
-		tap->wr_chan_flags =
-		    htole16(ic->ic_channels[phy_info->channel].ic_flags);
+		tap->wr_chan_freq = htole16(rxs.c_freq);
+		/* XXX only if ic->ic_curchan->ic_ieee == rxs.c_ieee */
+		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
 		tap->wr_dbm_antsignal = (int8_t)rssi;
 		tap->wr_dbm_antnoise = (int8_t)sc->sc_noise;
 		tap->wr_tsft = phy_info->system_timestamp;
@@ -2953,7 +2951,7 @@ iwm_mvm_add_sta_cmd_v6_to_v5(struct iwm_mvm_add_sta_cmd_v6 *cmd_v6,
 	cmd_v5->add_modify = cmd_v6->add_modify;
 	cmd_v5->tid_disable_tx = cmd_v6->tid_disable_tx;
 	cmd_v5->mac_id_n_color = cmd_v6->mac_id_n_color;
-	memcpy(cmd_v5->addr, cmd_v6->addr, ETHER_ADDR_LEN);
+	IEEE80211_ADDR_COPY(cmd_v5->addr, cmd_v6->addr);
 	cmd_v5->sta_id = cmd_v6->sta_id;
 	cmd_v5->modify_mask = cmd_v6->modify_mask;
 	cmd_v5->station_flags = cmd_v6->station_flags;
@@ -3057,7 +3055,7 @@ iwm_mvm_add_int_sta_common(struct iwm_softc *sc, struct iwm_int_sta *sta,
 	cmd.tfd_queue_msk = htole32(sta->tfd_queue_msk);
 
 	if (addr)
-		memcpy(cmd.addr, addr, ETHER_ADDR_LEN);
+		IEEE80211_ADDR_COPY(cmd.addr, addr);
 
 	ret = iwm_mvm_send_add_sta_cmd_status(sc, &cmd, &status);
 	if (ret)

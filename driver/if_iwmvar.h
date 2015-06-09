@@ -179,7 +179,7 @@ struct iwm_fw_info {
 
 struct iwm_nvm_data {
 	int n_hw_addrs;
-	uint8_t hw_addr[ETHER_ADDR_LEN];
+	uint8_t hw_addr[IEEE80211_ADDR_LEN];
 
 	uint8_t calib_version;
 	uint16_t calib_voltage;

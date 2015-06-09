@@ -4712,7 +4712,7 @@ struct iwm_scan_offload_cfg {
  * @client_bitmap: clients ignore this entry  - enum scan_framework_client
  */
 struct iwm_scan_offload_blacklist {
-	uint8_t ssid[ETHER_ADDR_LEN];
+	uint8_t ssid[IEEE80211_ADDR_LEN];
 	uint8_t reported_rssi;
 	uint8_t client_bitmap;
 } __packed;
@@ -5044,7 +5044,7 @@ struct iwm_mvm_keyinfo {
  * @multicast_tx_key_id: multicast tx key id. Relevant only when multicast key
  *	sent
  * @mac_id_n_color: the Mac context this station belongs to
- * @addr[ETHER_ADDR_LEN]: station's MAC address
+ * @addr[IEEE80211_ADDR_LEN]: station's MAC address
  * @sta_id: index of station in uCode's station table
  * @modify_mask: IWM_STA_MODIFY_*, selects which parameters to modify vs. leave
  *	alone. 1 - modify, 0 - don't change.
@@ -5082,7 +5082,7 @@ struct iwm_mvm_add_sta_cmd_v5 {
 	uint8_t multicast_tx_key_id;
 	uint8_t reserved1;
 	uint32_t mac_id_n_color;
-	uint8_t addr[ETHER_ADDR_LEN];
+	uint8_t addr[IEEE80211_ADDR_LEN];
 	uint16_t reserved2;
 	uint8_t sta_id;
 	uint8_t modify_mask;
@@ -5112,7 +5112,7 @@ struct iwm_mvm_add_sta_cmd_v6 {
 	uint8_t reserved1;
 	uint16_t tid_disable_tx;
 	uint32_t mac_id_n_color;
-	uint8_t addr[ETHER_ADDR_LEN];	/* _STA_ID_MODIFY_INFO_API_S_VER_1 */
+	uint8_t addr[IEEE80211_ADDR_LEN]; /* _STA_ID_MODIFY_INFO_API_S_VER_1 */
 	uint16_t reserved2;
 	uint8_t sta_id;
 	uint8_t modify_mask;

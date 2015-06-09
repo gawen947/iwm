@@ -170,9 +170,9 @@ __FBSDID("$FreeBSD$");
 
 #define IWM_PLCP_QUIET_THRESH 1
 #define IWM_ACTIVE_QUIET_TIME 10
-#define LONG_OUT_TIME_PERIOD 600
-#define SHORT_OUT_TIME_PERIOD 200
-#define SUSPEND_TIME_PERIOD 100
+#define LONG_OUT_TIME_PERIOD (600 * IEEE80211_DUR_TU)
+#define SHORT_OUT_TIME_PERIOD (200 * IEEE80211_DUR_TU)
+#define SUSPEND_TIME_PERIOD (100 * IEEE80211_DUR_TU)
 
 static uint16_t
 iwm_mvm_scan_rx_chain(struct iwm_softc *sc)
@@ -188,16 +188,14 @@ iwm_mvm_scan_rx_chain(struct iwm_softc *sc)
 	return htole16(rx_chain);
 }
 
-#define ieee80211_tu_to_usec(a) (1024*(a))
-
 static uint32_t
 iwm_mvm_scan_max_out_time(struct iwm_softc *sc, uint32_t flags, int is_assoc)
 {
 	if (!is_assoc)
 		return 0;
 	if (flags & 0x1)
-		return htole32(ieee80211_tu_to_usec(SHORT_OUT_TIME_PERIOD));
-	return htole32(ieee80211_tu_to_usec(LONG_OUT_TIME_PERIOD));
+		return htole32(SHORT_OUT_TIME_PERIOD);
+	return htole32(LONG_OUT_TIME_PERIOD);
 }
 
 static uint32_t
@@ -205,7 +203,7 @@ iwm_mvm_scan_suspend_time(struct iwm_softc *sc, int is_assoc)
 {
 	if (!is_assoc)
 		return 0;
-	return htole32(ieee80211_tu_to_usec(SUSPEND_TIME_PERIOD));
+	return htole32(SUSPEND_TIME_PERIOD);
 }
 
 static uint32_t
@@ -332,9 +330,7 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 	const uint8_t *ta, int n_ssids, const uint8_t *ssid, int ssid_len,
 	const uint8_t *ie, int ie_len, int left)
 {
-	int len = 0;
 	uint8_t *pos = NULL;
-	struct ifnet *ifp = sc->sc_ifp;
 
 	/* Make sure there is enough space for the probe request,
 	 * two mandatory IEs and the data */
@@ -345,16 +341,13 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 	frame->i_fc[0] = IEEE80211_FC0_VERSION_0 | IEEE80211_FC0_TYPE_MGT |
 	    IEEE80211_FC0_SUBTYPE_PROBE_REQ;
 	frame->i_fc[1] = IEEE80211_FC1_DIR_NODS;
-	IEEE80211_ADDR_COPY(frame->i_addr1, ifp->if_broadcastaddr);
-	memcpy(frame->i_addr2, ta, ETHER_ADDR_LEN);
-	IEEE80211_ADDR_COPY(frame->i_addr3, ifp->if_broadcastaddr);
-
-	len += sizeof(*frame);
-	CTASSERT(sizeof(*frame) == 24);
+	IEEE80211_ADDR_COPY(frame->i_addr1, ieee80211broadcastaddr);
+	IEEE80211_ADDR_COPY(frame->i_addr2, ta);
+	IEEE80211_ADDR_COPY(frame->i_addr3, ieee80211broadcastaddr);
 
 	/* for passive scans, no need to fill anything */
 	if (n_ssids == 0)
-		return (uint16_t)len;
+		return sizeof(*frame);
 
 	/* points to the payload of the request */
 	pos = (uint8_t *)frame + sizeof(*frame);
@@ -363,24 +356,15 @@ iwm_mvm_fill_probe_req(struct iwm_softc *sc, struct ieee80211_frame *frame,
 	left -= ssid_len + 2;
 	if (left < 0)
 		return 0;
-	*pos++ = IEEE80211_ELEMID_SSID;
-	*pos++ = ssid_len;
-	if (ssid && ssid_len) { /* ssid_len may be == 0 even if ssid is valid */
-		memcpy(pos, ssid, ssid_len);
-		pos += ssid_len;
-	}
 
-	len += ssid_len + 2;
+	ieee80211_add_ssid(pos, ssid, ssid_len);
 
-	if (left < ie_len)
-		return len;
-
-	if (ie && ie_len) {
+	if (ie && ie_len && left >= ie_len) {
 		memcpy(pos, ie, ie_len);
-		len += ie_len;
+		pos += ie_len;
 	}
 
-	return (uint16_t)len;
+	return pos - (uint8_t *)frame;
 }
 
 int
