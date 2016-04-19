@@ -4967,6 +4967,18 @@ iwm_update_mcast(struct ifnet *ifp)
 static void
 iwm_set_channel(struct ieee80211com *ic)
 {
+  const struct ieee80211_channel *c = ic->ic_curchan;
+  struct ifnet *ifp = ic->ic_ifp;
+  struct iwm_softc *sc = ifp->if_softc;
+
+  IWM_LOCK(sc);
+  sc->sc_rxtap.wr_chan_freq  = htole16(c->ic_freq);
+  sc->sc_rxtap.wr_chan_flags = htole16(c->ic_flags);
+  sc->sc_txtap.wt_chan_freq  = htole16(c->ic_freq);
+  sc->sc_txtap.wt_chan_flags = htole16(c->ic_flags);
+  IWM_UNLOCK(sc);
+
+  ieee80211_radiotap_chan_change(ic);
 }
 
 static void
