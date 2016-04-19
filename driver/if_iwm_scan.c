@@ -174,6 +174,21 @@ __FBSDID("$FreeBSD$");
 #define SHORT_OUT_TIME_PERIOD (200 * IEEE80211_DUR_TU)
 #define SUSPEND_TIME_PERIOD (100 * IEEE80211_DUR_TU)
 
+static const uint8_t ieee80211broadcastaddr[IEEE80211_ADDR_LEN] =
+	{ 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+
+/*
+ * Add an ssid element to a frame.
+ */
+static uint8_t *
+ieee80211_add_ssid(uint8_t *frm, const uint8_t *ssid, u_int len)
+{
+	*frm++ = IEEE80211_ELEMID_SSID;
+	*frm++ = len;
+	memcpy(frm, ssid, len);
+	return frm + len;
+}
+
 static uint16_t
 iwm_mvm_scan_rx_chain(struct iwm_softc *sc)
 {

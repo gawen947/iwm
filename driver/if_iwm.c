@@ -341,7 +341,7 @@ static struct ieee80211vap *
 static void	iwm_vap_delete(struct ieee80211vap *);
 static void	iwm_scan_start(struct ieee80211com *);
 static void	iwm_scan_end(struct ieee80211com *);
-static void	iwm_update_mcast(struct ieee80211com *);
+static void	iwm_update_mcast(struct ifnet *ifp);
 static void	iwm_set_channel(struct ieee80211com *);
 static void	iwm_scan_curchan(struct ieee80211_scan_state *, unsigned long);
 static void	iwm_scan_mindwell(struct ieee80211_scan_state *);
@@ -2348,14 +2348,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 	 * Populate an RX state struct with the provided information.
 	 */
 	bzero(&rxs, sizeof(rxs));
-	rxs.r_flags |= IEEE80211_R_IEEE | IEEE80211_R_FREQ;
 	rxs.r_flags |= IEEE80211_R_NF | IEEE80211_R_RSSI;
-	rxs.c_ieee = le16toh(phy_info->channel);
-	if (le16toh(phy_info->phy_flags & IWM_RX_RES_PHY_FLAGS_BAND_24)) {
-		rxs.c_freq = ieee80211_ieee2mhz(rxs.c_ieee, IEEE80211_CHAN_2GHZ);
-	} else {
-		rxs.c_freq = ieee80211_ieee2mhz(rxs.c_ieee, IEEE80211_CHAN_5GHZ);
-	}
 	rxs.rssi = rssi - sc->sc_noise;
 	rxs.nf = sc->sc_noise;
 
@@ -2365,7 +2358,7 @@ iwm_mvm_rx_rx_mpdu(struct iwm_softc *sc,
 		tap->wr_flags = 0;
 		if (phy_info->phy_flags & htole16(IWM_PHY_INFO_FLAG_SHPREAMBLE))
 			tap->wr_flags |= IEEE80211_RADIOTAP_F_SHORTPRE;
-		tap->wr_chan_freq = htole16(rxs.c_freq);
+		tap->wr_chan_freq = htole16(ic->ic_curchan->ic_freq);
 		/* XXX only if ic->ic_curchan->ic_ieee == rxs.c_ieee */
 		tap->wr_chan_flags = htole16(ic->ic_curchan->ic_flags);
 		tap->wr_dbm_antsignal = (int8_t)rssi;
@@ -4769,8 +4762,8 @@ iwm_attach(device_t dev)
 	 */
 	sc->sc_ic = ic = ifp->if_l2com;
 	ic->ic_ifp = ifp;
-	ic->ic_softc = sc;
-	ic->ic_name = device_get_nameunit(sc->sc_dev);
+	/* ic->ic_softc = sc; */
+	/* ic->ic_name = device_get_nameunit(sc->sc_dev); */
 	ic->ic_phytype = IEEE80211_T_OFDM;	/* not only, but not used */
 	ic->ic_opmode = IEEE80211_M_STA;	/* default to BSS mode */
 
@@ -4981,7 +4974,7 @@ iwm_scan_end(struct ieee80211com *ic)
 }
 
 static void
-iwm_update_mcast(struct ieee80211com *ic)
+iwm_update_mcast(struct ifnet *ifp)
 {
 }
 
