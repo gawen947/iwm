@@ -4952,20 +4952,6 @@ iwm_vap_delete(struct ieee80211vap *vap)
 static void
 iwm_scan_start(struct ieee80211com *ic)
 {
-	struct ieee80211vap *vap = TAILQ_FIRST(&ic->ic_vaps);
-        struct iwm_softc *sc = ic->ic_ifp->if_softc;
-	int error;
-
-	if (sc->sc_scanband)
-		return;
-	IWM_LOCK(sc);
-	error = iwm_mvm_scan_request(sc, IEEE80211_CHAN_2GHZ, 0, NULL, 0);
-	if (error) {
-		device_printf(sc->sc_dev, "could not initiate scan\n");
-		IWM_UNLOCK(sc);
-		ieee80211_cancel_scan(vap);
-	} else
-		IWM_UNLOCK(sc);
 }
 
 static void
@@ -4986,6 +4972,20 @@ iwm_set_channel(struct ieee80211com *ic)
 static void
 iwm_scan_curchan(struct ieee80211_scan_state *ss, unsigned long maxdwell)
 {
+	struct ieee80211vap *vap = ss->ss_vap;
+  struct iwm_softc *sc = vap->iv_ic->ic_ifp->if_softc;
+	int error;
+
+	if (sc->sc_scanband)
+		return;
+	IWM_LOCK(sc);
+	error = iwm_mvm_scan_request(sc, IEEE80211_CHAN_2GHZ, 0, NULL, 0);
+	if (error) {
+		device_printf(sc->sc_dev, "could not initiate scan\n");
+		IWM_UNLOCK(sc);
+		ieee80211_cancel_scan(vap);
+	} else
+		IWM_UNLOCK(sc);
 }
 
 static void
